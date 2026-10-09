@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
-import google.generativeai as genai
+import httpx
 from typing import Optional
 
 load_dotenv()
@@ -24,7 +24,8 @@ supabase: Client = create_client(
     os.getenv("SUPABASE_KEY")
 )
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 # ── Models ──────────────────────────────────────────────
 
@@ -50,12 +51,14 @@ class IngredientExplainRequest(BaseModel):
     health_focus_areas: list[str] = []
     hard_exclusions: list[str] = []
 
-# ── Health Profile Endpoints ─────────────────────────────
+# ── Root ─────────────────────────────────────────────────
 
 @app.get("/")
 @app.get("/api")
 def root():
     return {"status": "AisleAlly API is running"}
+
+# ── Health Profile Endpoints ─────────────────────────────
 
 @app.post("/api/profile")
 def save_profile(profile: HealthProfile):
@@ -147,8 +150,13 @@ The ingredient "{req.ingredient}" has been flagged as {req.status} for this user
 Write exactly 1-2 sentences explaining why this ingredient is {req.status} for someone with this health profile.
 Be specific, plain English, no jargon. Do not start with "I"."""
 
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
-        return {"explanation": response.text.strip()}
+        response = httpx.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return {"explanation": text.strip()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
