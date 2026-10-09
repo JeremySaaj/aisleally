@@ -18,16 +18,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
-def get_supabase():
-    from supabase import create_client
-    url = os.getenv("SUPABASE_URL", "")
-    key = os.getenv("SUPABASE_KEY", "")
-    if not url or not key:
-        raise HTTPException(status_code=500, detail="Supabase env vars not configured")
-    return create_client(url, key)
+def sb_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
 
 # ── Models ──────────────────────────────────────────────
 
@@ -65,31 +67,30 @@ def root():
 
 @app.post("/api/profile")
 def save_profile(profile: HealthProfile):
-    supabase = get_supabase()
     try:
-        existing = supabase.table("health_profiles")\
-            .select("id")\
-            .eq("user_id", profile.user_id)\
-            .execute()
-
+        base = f"{SUPABASE_URL}/rest/v1/health_profiles"
+        # Check if exists
+        check = httpx.get(
+            f"{base}?user_id=eq.{profile.user_id}&select=id",
+            headers=sb_headers(), timeout=10.0
+        )
+        existing = check.json()
         data = {
             "user_id": profile.user_id,
             "health_focus_areas": profile.health_focus_areas,
             "hard_exclusions": profile.hard_exclusions,
             "custom_tags": profile.custom_tags,
         }
-
-        if existing.data:
-            result = supabase.table("health_profiles")\
-                .update(data)\
-                .eq("user_id", profile.user_id)\
-                .execute()
+        if existing:
+            res = httpx.patch(
+                f"{base}?user_id=eq.{profile.user_id}",
+                json=data, headers=sb_headers(), timeout=10.0
+            )
         else:
-            result = supabase.table("health_profiles")\
-                .insert(data)\
-                .execute()
-
-        return {"success": True, "data": result.data}
+            res = httpx.post(base, json=data, headers=sb_headers(), timeout=10.0)
+        if res.status_code >= 400:
+            raise HTTPException(status_code=500, detail=res.text)
+        return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
@@ -97,17 +98,15 @@ def save_profile(profile: HealthProfile):
 
 @app.get("/api/profile/{user_id}")
 def get_profile(user_id: str):
-    supabase = get_supabase()
     try:
-        result = supabase.table("health_profiles")\
-            .select("*")\
-            .eq("user_id", user_id)\
-            .execute()
-
-        if not result.data:
+        res = httpx.get(
+            f"{SUPABASE_URL}/rest/v1/health_profiles?user_id=eq.{user_id}&select=*",
+            headers=sb_headers(), timeout=10.0
+        )
+        data = res.json()
+        if not data:
             raise HTTPException(status_code=404, detail="Profile not found")
-
-        return result.data[0]
+        return data[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -117,12 +116,14 @@ def get_profile(user_id: str):
 
 @app.post("/api/history")
 def save_history(entry: SearchHistoryEntry):
-    supabase = get_supabase()
     try:
-        result = supabase.table("search_history")\
-            .insert(entry.dict())\
-            .execute()
-        return {"success": True, "data": result.data}
+        res = httpx.post(
+            f"{SUPABASE_URL}/rest/v1/search_history",
+            json=entry.dict(), headers=sb_headers(), timeout=10.0
+        )
+        if res.status_code >= 400:
+            raise HTTPException(status_code=500, detail=res.text)
+        return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
@@ -130,17 +131,12 @@ def save_history(entry: SearchHistoryEntry):
 
 @app.get("/api/history/{user_id}")
 def get_history(user_id: str):
-    supabase = get_supabase()
     try:
-        result = supabase.table("search_history")\
-            .select("*")\
-            .eq("user_id", user_id)\
-            .order("created_at", desc=True)\
-            .limit(20)\
-            .execute()
-        return result.data
-    except HTTPException:
-        raise
+        res = httpx.get(
+            f"{SUPABASE_URL}/rest/v1/search_history?user_id=eq.{user_id}&order=created_at.desc&limit=20&select=*",
+            headers=sb_headers(), timeout=10.0
+        )
+        return res.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
