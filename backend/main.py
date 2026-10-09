@@ -74,7 +74,7 @@ def save_profile(profile: HealthProfile):
             f"{base}?user_id=eq.{profile.user_id}&select=id",
             headers=sb_headers(), timeout=10.0
         )
-        existing = check.json()
+        existing = check.json() if isinstance(check.json(), list) else []
         data = {
             "user_id": profile.user_id,
             "health_focus_areas": profile.health_focus_areas,
@@ -103,8 +103,10 @@ def get_profile(user_id: str):
             f"{SUPABASE_URL}/rest/v1/health_profiles?user_id=eq.{user_id}&select=*",
             headers=sb_headers(), timeout=10.0
         )
+        if res.status_code >= 400:
+            raise HTTPException(status_code=500, detail=f"Database error ({res.status_code}): {res.text}")
         data = res.json()
-        if not data:
+        if not isinstance(data, list) or len(data) == 0:
             raise HTTPException(status_code=404, detail="Profile not found")
         return data[0]
     except HTTPException:
