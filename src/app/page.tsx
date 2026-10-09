@@ -1,69 +1,155 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useCallback, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import GroceryMascot from "@/components/ui/GroceryMascot";
+import HeroBackground from "@/components/ui/HeroBackground";
+import CustomSectionCard from "@/components/ui/CustomSectionCard";
+import { FlowButton } from "@/components/ui/FlowButton";
+
+/**
+ * Route: / (Login Screen)
+ *
+ * The first screen of the app. Shows the AisleAlly branding with an
+ * animated gradient hero, then a white card with a simple email/password
+ * sign-in form. No real authentication — any non-empty values pass.
+ */
+export default function LoginPage() {
+  const router = useRouter();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>(
+    {},
+  );
+
+  const handleSubmit = useCallback(
+    (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+
+      const newErrors: { email?: string; password?: string } = {};
+      if (!email.trim()) newErrors.email = "Please enter your email";
+      if (!password.trim()) newErrors.password = "Please enter your password";
+
+      if (Object.keys(newErrors).length > 0) {
+        setErrors(newErrors);
+        return;
+      }
+
+      // No real auth for MVP — store email as user ID and navigate to onboarding
+      localStorage.setItem("aisleally-user-id", email.trim().toLowerCase());
+      router.push("/onboarding");
+    },
+    [email, password, router],
+  );
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="min-h-screen bg-cream">
+      {/* ===== HERO ZONE ===== */}
+      <div className="relative w-full overflow-hidden">
+        {/* Animated gradient background */}
+        <div className="absolute inset-0 z-0">
+          <HeroBackground className="!w-full !h-full" />
+        </div>
+
+        {/* Content above gradient */}
+        <div className="relative z-10 flex flex-col items-center justify-center pt-16 pb-24 px-6">
+          <GroceryMascot className="!w-20 !h-auto mb-4" />
+          <h1 className="text-2xl font-extrabold text-white tracking-tight">
+            AisleAlly
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </div>
+
+      {/* ===== WHITE CARD ===== */}
+      <div className="relative -mt-12 z-20">
+        <div className="max-w-md mx-auto px-4">
+          <CustomSectionCard className="!rounded-t-3xl !shadow-lg">
+            {/* Headings */}
+            <h2 className="text-xl font-bold text-primary text-center mb-1">
+              Welcome back
+            </h2>
+            <p className="text-sm text-gray-400 text-center mb-6">
+              Sign in to your AisleAlly account
+            </p>
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} noValidate className="space-y-5">
+              {/* Email field */}
+              <div>
+                <label
+                  htmlFor="login-email"
+                  className="block text-sm font-medium text-primary mb-1.5"
+                >
+                  Email
+                </label>
+                <input
+                  id="login-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (errors.email)
+                      setErrors((prev) => ({ ...prev, email: undefined }));
+                  }}
+                  className={`w-full rounded-xl border px-4 py-3 text-sm text-primary placeholder:text-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-[#1B4332] focus:border-[#1B4332] transition-colors ${
+                    errors.email
+                      ? "border-red-400 bg-red-50"
+                      : "border-gray-200"
+                  }`}
+                />
+                {errors.email && (
+                  <p role="alert" className="mt-1.5 text-xs text-red-500">
+                    {errors.email}
+                  </p>
+                )}
+              </div>
+
+              {/* Password field */}
+              <div>
+                <label
+                  htmlFor="login-password"
+                  className="block text-sm font-medium text-primary mb-1.5"
+                >
+                  Password
+                </label>
+                <input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password)
+                      setErrors((prev) => ({ ...prev, password: undefined }));
+                  }}
+                  className={`w-full rounded-xl border px-4 py-3 text-sm text-primary placeholder:text-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-[#1B4332] focus:border-[#1B4332] transition-colors ${
+                    errors.password
+                      ? "border-red-400 bg-red-50"
+                      : "border-gray-200"
+                  }`}
+                />
+                {errors.password && (
+                  <p role="alert" className="mt-1.5 text-xs text-red-500">
+                    {errors.password}
+                  </p>
+                )}
+              </div>
+
+              {/* Sign In button */}
+              <FlowButton text="Sign In" type="submit" />
+
+              {/* Helper text */}
+              <p className="text-center text-xs text-gray-400 pt-1">
+                New here? Your profile will be set up after sign in.
+              </p>
+            </form>
+          </CustomSectionCard>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

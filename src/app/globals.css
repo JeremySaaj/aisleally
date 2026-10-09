@@ -1,26 +1,56 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * AisleAlly — Global Styles
+ * Tailwind v4 with inline @theme for custom design tokens.
+ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Font family: Inter from next/font/google */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    sans-serif;
+
+  /* AisleAlly brand palette */
+  --color-background: #f5f5f0; /* cream page background */
+  --color-foreground: #1b4332; /* dark forest green */
+
+  /* Semantic aliases */
+  --color-primary: #1b4332; /* forest green — CTA, headings */
+  --color-secondary: #c8e6c9; /* mint green — header zone */
+  --color-accent: #52b788; /* light green — tags, borders */
+  --color-cream: #f5f5f0; /* off-white page background */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/*
+ * Base resets
+ */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+/*
+ * Smooth scrolling for anchor links
+ */
+html {
+  scroll-behavior: smooth;
+}
+
+/*
+ * Remove default focus outlines — we handle focus with Tailwind focus:ring
+ */
+*:focus {
+  outline: none;
+}
+
+/*
+ * Ensure proper input styling on iOS
+ */
+input,
+textarea,
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
 }
