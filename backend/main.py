@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
 import httpx
@@ -19,13 +18,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-supabase: Client = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+def get_supabase():
+    from supabase import create_client
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_KEY", "")
+    if not url or not key:
+        raise HTTPException(status_code=500, detail="Supabase env vars not configured")
+    return create_client(url, key)
 
 # ── Models ──────────────────────────────────────────────
 
@@ -55,6 +57,7 @@ class IngredientExplainRequest(BaseModel):
 
 @app.get("/")
 @app.get("/api")
+@app.get("/api/")
 def root():
     return {"status": "AisleAlly API is running"}
 
@@ -62,6 +65,7 @@ def root():
 
 @app.post("/api/profile")
 def save_profile(profile: HealthProfile):
+    supabase = get_supabase()
     try:
         existing = supabase.table("health_profiles")\
             .select("id")\
@@ -86,11 +90,14 @@ def save_profile(profile: HealthProfile):
                 .execute()
 
         return {"success": True, "data": result.data}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/profile/{user_id}")
 def get_profile(user_id: str):
+    supabase = get_supabase()
     try:
         result = supabase.table("health_profiles")\
             .select("*")\
@@ -110,16 +117,20 @@ def get_profile(user_id: str):
 
 @app.post("/api/history")
 def save_history(entry: SearchHistoryEntry):
+    supabase = get_supabase()
     try:
         result = supabase.table("search_history")\
             .insert(entry.dict())\
             .execute()
         return {"success": True, "data": result.data}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history/{user_id}")
 def get_history(user_id: str):
+    supabase = get_supabase()
     try:
         result = supabase.table("search_history")\
             .select("*")\
@@ -128,6 +139,8 @@ def get_history(user_id: str):
             .limit(20)\
             .execute()
         return result.data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
