@@ -53,10 +53,11 @@ class IngredientExplainRequest(BaseModel):
 # ── Health Profile Endpoints ─────────────────────────────
 
 @app.get("/")
+@app.get("/api")
 def root():
     return {"status": "AisleAlly API is running"}
 
-@app.post("/profile")
+@app.post("/api/profile")
 def save_profile(profile: HealthProfile):
     try:
         existing = supabase.table("health_profiles")\
@@ -85,7 +86,7 @@ def save_profile(profile: HealthProfile):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/profile/{user_id}")
+@app.get("/api/profile/{user_id}")
 def get_profile(user_id: str):
     try:
         result = supabase.table("health_profiles")\
@@ -104,7 +105,7 @@ def get_profile(user_id: str):
 
 # ── Search History Endpoints ─────────────────────────────
 
-@app.post("/history")
+@app.post("/api/history")
 def save_history(entry: SearchHistoryEntry):
     try:
         result = supabase.table("search_history")\
@@ -114,7 +115,7 @@ def save_history(entry: SearchHistoryEntry):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/history/{user_id}")
+@app.get("/api/history/{user_id}")
 def get_history(user_id: str):
     try:
         result = supabase.table("search_history")\
@@ -129,7 +130,7 @@ def get_history(user_id: str):
 
 # ── Gemini AI Endpoint ───────────────────────────────────
 
-@app.post("/explain")
+@app.post("/api/explain")
 def explain_ingredient(req: IngredientExplainRequest):
     try:
         profile_context = ""

@@ -1,13 +1,12 @@
 /**
  * api.ts — AisleAlly Backend Client
  *
- * All calls go to the FastAPI backend. The base URL is set via the
- * NEXT_PUBLIC_BACKEND_URL environment variable (Vercel production) and falls
- * back to localhost:8000 for local development.
+ * All calls go to the FastAPI backend. In production (Vercel), BASE_URL is ""
+ * so requests use relative paths like /api/profile — Vercel rewrites these to
+ * the FastAPI backend service. In local dev, set NEXT_PUBLIC_BACKEND_URL=http://localhost:8000.
  */
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,7 +38,7 @@ export interface ApiIngredientExplainRequest {
 // ── Health Profile ────────────────────────────────────────────────────────────
 
 export async function saveProfile(profile: ApiHealthProfile): Promise<void> {
-  await fetch(`${BASE_URL}/profile`, {
+  await fetch(`${BASE_URL}/api/profile`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(profile),
@@ -49,7 +48,7 @@ export async function saveProfile(profile: ApiHealthProfile): Promise<void> {
 export async function getProfile(
   userId: string,
 ): Promise<ApiHealthProfile | null> {
-  const res = await fetch(`${BASE_URL}/profile/${userId}`);
+  const res = await fetch(`${BASE_URL}/api/profile/${userId}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("Failed to fetch profile");
   return res.json();
@@ -60,7 +59,7 @@ export async function getProfile(
 export async function saveHistory(
   entry: ApiSearchHistoryEntry,
 ): Promise<void> {
-  await fetch(`${BASE_URL}/history`, {
+  await fetch(`${BASE_URL}/api/history`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(entry),
@@ -72,7 +71,7 @@ export async function saveHistory(
 export async function explainIngredient(
   req: ApiIngredientExplainRequest,
 ): Promise<string> {
-  const res = await fetch(`${BASE_URL}/explain`, {
+  const res = await fetch(`${BASE_URL}/api/explain`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
