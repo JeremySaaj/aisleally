@@ -255,15 +255,27 @@ def _is_likely_english(text: str) -> bool:
     non_ascii = sum(1 for c in text if ord(c) > 127)
     return non_ascii <= len(text) * 0.15
 
-def _best_ingredients(p: dict) -> str:
-    """Return the best English ingredients text for an OOF product dict."""
+def _best_ingredients(p: dict, english_only: bool = False) -> str:
+    """Return the best ingredients text for an OOF product dict.
+
+    If english_only=True, returns "" when no English text is available
+    (used in AI Pick to skip non-English candidates).
+    Otherwise, prefers English but falls back to whatever is available
+    (used in search/clean so products are not silently dropped).
+    """
     en = (p.get("ingredients_text_en") or "").strip()
     generic = (p.get("ingredients_text") or "").strip()
+    # 1. Use the dedicated English field if it looks English
     if en and _is_likely_english(en):
         return en
+    # 2. Use the generic field if it looks English
     if generic and _is_likely_english(generic):
         return generic
-    return ""
+    # 3. In strict mode (AI Pick), skip non-English products
+    if english_only:
+        return ""
+    # 4. Otherwise return best available text (Gemini can translate)
+    return en or generic
 
 def _clean_products(raw: list) -> list:
     """Filter and normalise a raw OOF product list."""
@@ -502,7 +514,7 @@ def ai_pick(name: str, category: str = "", flags: str = ""):
             raw_products = _oof_search(query, page_size=15)
             for p in raw_products:
                 pname = (p.get("product_name") or "").strip()
-                ingredients = _best_ingredients(p)
+                ingredients = _best_ingredients(p, english_only=True)
                 if not pname or not ingredients:
                     continue
                 if pname.lower() == name_lower:
