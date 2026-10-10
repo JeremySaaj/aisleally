@@ -138,9 +138,19 @@ def auth_user(req: AuthRequest):
             return {"user_id": user_id, "email": req.email, "is_new_user": True}
 
         up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
+        up_code  = up_body.get("code") or up_body.get("error_code") or ""
 
-        if "already registered" not in up_error and "already been registered" not in up_error:
-            # Some unexpected sign-up error
+        # Supabase signals "account already exists" in several ways depending on version
+        account_exists = (
+            "already registered" in up_error
+            or "already been registered" in up_error
+            or "already exists" in up_error
+            or up_code in ("user_already_exists", "email_exists")
+            or sign_up.status_code == 422
+        )
+
+        if not account_exists:
+            # Some unexpected sign-up error — surface it
             raise HTTPException(status_code=400, detail=up_body.get("msg", "Sign-up failed"))
 
         # ── Step 2: account exists — verify password via sign-in ──
@@ -160,6 +170,19 @@ def auth_user(req: AuthRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Auth error: {str(e)}")
+
+
+@app.post("/api/auth/debug")
+def auth_debug(req: AuthRequest):
+    """Temporary endpoint — shows raw Supabase auth responses for debugging."""
+    auth_base = f"{SUPABASE_URL}/auth/v1"
+    headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
+    payload = {"email": req.email, "password": req.password}
+    sign_up = httpx.post(f"{auth_base}/signup", json=payload, headers=headers, timeout=10.0)
+    return {
+        "signup_status": sign_up.status_code,
+        "signup_body": sign_up.json() if sign_up.content else {},
+    }
 
 
 # ── Health Profile Endpoints ─────────────────────────────
