@@ -181,6 +181,29 @@ def get_history(user_id: str):
 BLOCKED = {"cannabis", "hemp", "cbd", "thc", "marijuana", "weed",
            "nicotine", "tobacco", "vape", "e-cigarette"}
 
+# OOF category tag fragments that mark a product as definitively non-food.
+# A product whose categories contain ANY of these is excluded from search results.
+NON_FOOD_CATS = {
+    "non-food", "hygiene", "baby-hygiene", "personal-care", "cosmetics",
+    "cleaning", "detergent", "laundry", "dishwasher", "household",
+    "wipe", "nappy", "diaper", "sanitary", "feminine-hygiene",
+    "shampoo", "conditioner", "body-wash", "soap", "toothpaste",
+    "deodorant", "moisturiser", "moisturizer", "sunscreen", "sunblock",
+    "makeup", "lipstick", "mascara", "foundation", "nail-polish",
+    "medication", "medicine", "pharmaceutical", "supplement-pill",
+    "pet-product", "pet-care",
+}
+
+# Product name keywords that indicate a clearly non-food item
+NON_FOOD_NAME_KW = {
+    "wipe", "nappy", "diaper", "shampoo", "conditioner", "body wash",
+    "face wash", "soap bar", "hand soap", "dish soap", "detergent",
+    "bleach", "disinfectant", "sunscreen", "moisturiser", "moisturizer",
+    "deodorant", "toothpaste", "mouthwash", "hand sanitiser", "sanitizer",
+    "bandage", "plaster", "pill", "tablet", "capsule", "medicine",
+    "lotion", "cream spf", "nail polish",
+}
+
 # Common food-term misspellings → correct Australian English spelling
 FOOD_CORRECTIONS: dict[str, str] = {
     # yoghurt variants
@@ -259,9 +282,15 @@ def _clean_products(raw: list) -> list:
         name_lower = name.lower()
         if any(kw in name_lower for kw in BLOCKED):
             continue
+        # Reject non-food items by product name keywords
+        if any(kw in name_lower for kw in NON_FOOD_NAME_KW):
+            continue
         cats = p.get("categories_tags") or []
         cats_lower = " ".join(cats).lower()
         if any(kw in cats_lower for kw in BLOCKED):
+            continue
+        # Reject non-food items by OOF category tags
+        if any(kw in cats_lower for kw in NON_FOOD_CATS):
             continue
         non_ascii = sum(1 for c in name if ord(c) > 127)
         if non_ascii > len(name) * 0.3:
@@ -350,7 +379,17 @@ User health profile: {profile_context}
 Product: {req.product_name}
 Ingredients: {req.ingredients_text}
 
-Analyze each ingredient against the user's health profile. Return a JSON object in this exact format:
+IMPORTANT — FIRST CHECK: Is this actually a food or beverage product meant for human consumption?
+If the product name or ingredients clearly indicate a non-food item (e.g. baby wipes, soap, shampoo, detergent, sunscreen, nappies, cleaning products, cosmetics, medication), you MUST return:
+{{
+  "verdict": "trigger",
+  "verdict_title": "Not a Food Product",
+  "verdict_subtext": "This appears to be a non-food item and should not be consumed. AisleAlly is designed for food and beverages only.",
+  "condition_flags": [{{"status": "trigger", "description": "This product is not intended for human consumption."}}],
+  "ingredients": []
+}}
+
+If it IS a food/beverage, analyze each ingredient against the user's health profile and return:
 
 {{
   "verdict": "safe",
@@ -370,7 +409,7 @@ Analyze each ingredient against the user's health profile. Return a JSON object 
 
 Rules:
 - verdict must be one of: "safe", "caution", "trigger"
-- verdict_title must be one of: "Safe to Eat", "Caution — Check Ingredients", "Trigger Found"
+- verdict_title must be one of: "Safe to Eat", "Caution — Check Ingredients", "Trigger Found", "Not a Food Product"
 - Overall verdict = "trigger" if ANY ingredient is trigger; "caution" if any is caution but none trigger; else "safe"
 - Flag as "trigger" if ingredient is in the hard exclusions or directly harms health focus areas
 - Flag as "caution" if ingredient may be concerning for the health profile
@@ -441,116 +480,62 @@ Be specific, plain English, no jargon. Do not start with "I"."""
 
 # ── AI Pick (find a similar alternative product) ─────────
 
-# Maps broad food-group keywords → set of OOF category tag fragments.
-# If the original product and the candidate share NO group, they're too different.
-FOOD_GROUPS: list[tuple[str, set[str]]] = [
-    ("chips_snacks",   {"chip", "crisp", "snack", "popcorn", "pretzel", "cracker", "corn-chip", "rice-cracker"}),
-    ("chocolate",      {"chocolate", "cacao", "cocoa", "confection", "candy", "lolly", "sweet"}),
-    ("bread_bakery",   {"bread", "bakery", "biscuit", "cookie", "muffin", "cake", "pastry", "crumpet", "wrap", "tortilla"}),
-    ("dairy",          {"yoghurt", "yogurt", "cheese", "milk", "cream", "butter", "dairy"}),
-    ("cereal_grains",  {"cereal", "muesli", "oat", "porridge", "granola", "weetbix", "weet-bix", "grain", "rice-bubble"}),
-    ("beverage",       {"juice", "drink", "beverage", "water", "soda", "smoothie", "coffee", "tea", "kombucha", "beer", "wine"}),
-    ("condiment",      {"sauce", "dressing", "condiment", "dip", "spread", "jam", "jelly", "marmalade", "vegemite", "peanut-butter", "nutella"}),
-    ("meat_seafood",   {"meat", "chicken", "beef", "pork", "fish", "salmon", "tuna", "seafood", "lamb", "turkey"}),
-    ("frozen",         {"frozen", "ice-cream", "gelato", "sorbet"}),
-    ("pasta_rice",     {"pasta", "noodle", "rice", "quinoa", "couscous"}),
-    ("nuts_seeds",     {"nut", "seed", "almond", "cashew", "peanut", "walnut", "pistachio", "trail-mix"}),
-    ("protein_supplement", {"protein", "supplement", "bar", "shake", "powder"}),
-    ("fruit_veg",      {"fruit", "vegetable", "dried-fruit", "raisin", "sultana"}),
-]
-
-def _food_group(name: str, cats: list[str]) -> Optional[str]:
-    """Return the broad food group for a product, or None if unknown."""
-    combined = (name + " " + " ".join(cats)).lower()
-    for group_name, keywords in FOOD_GROUPS:
-        if any(kw in combined for kw in keywords):
-            return group_name
-    return None
-
 @app.get("/api/ai-pick")
 def ai_pick(name: str, category: str = ""):
     """Find a similar alternative product for comparison."""
     try:
-        stop_words = {"the", "and", "for", "with", "from", "original",
-                      "natural", "organic", "classic", "brand", "new"}
+        # Use the first meaningful word of the product name / category as search query
+        words = name.lower().split()
+        # Try category first, fall back to product name keywords
+        query = category.split()[0] if category else (words[1] if len(words) > 1 else words[0])
 
-        # Determine the original product's food group
-        original_cats = [w.lower() for w in re.split(r"[\s\-_/]+", category)]
-        original_group = _food_group(name, original_cats)
-
-        # Build ranked list of search queries (most → least specific)
-        name_words = [w for w in re.split(r"[\s\-_/]+", name.lower()) if len(w) >= 3 and w not in stop_words]
-        cat_words  = [w for w in re.split(r"[\s\-_/]+", category.lower()) if len(w) >= 3 and w not in stop_words]
-
-        queries: list[str] = []
-        if cat_words:
-            queries.append(" ".join(cat_words[:3]))   # e.g. "salty snacks chips"
-        if name.strip():
-            queries.append(name.strip())              # e.g. "Grain Waves Sour Cream"
-        if len(name_words) >= 2:
-            queries.append(" ".join(name_words[:2]))  # e.g. "grain waves"
-        if name_words:
-            queries.append(name_words[0])             # e.g. "grain"
-
-        # Deduplicate while preserving order
-        seen_q: set = set()
-        unique_queries: list[str] = []
-        for q in queries:
-            if q and q not in seen_q:
-                seen_q.add(q)
-                unique_queries.append(q)
-
-        name_lower = name.lower()
-
-        def _try_pick(query: str) -> Optional[dict]:
-            raw = _oof_search(query, page_size=15)
-            for p in raw:
-                pname = (p.get("product_name") or "").strip()
-                ingredients = (p.get("ingredients_text") or "").strip()
-                if not pname or not ingredients:
-                    continue
-                if pname.lower() == name_lower:
-                    continue
-                if any(kw in pname.lower() for kw in BLOCKED):
-                    continue
-                non_ascii = sum(1 for c in pname if ord(c) > 127)
-                if non_ascii > len(pname) * 0.3:
-                    continue
-                # ── Category similarity check ────────────────────────
-                # If we know the original food group, reject candidates
-                # that clearly belong to a different food group.
-                pcats = p.get("categories_tags") or []
-                if original_group is not None:
-                    candidate_group = _food_group(pname, [t.replace("en:", "") for t in pcats])
-                    if candidate_group is not None and candidate_group != original_group:
-                        continue  # different food group — skip
-                # ── Format category label ────────────────────────────
-                cat = "General"
-                for c in pcats:
-                    if c.startswith("en:"):
-                        cleaned = c[3:].replace("-", " ").title()
-                        if 3 < len(cleaned) < 40:
-                            cat = cleaned
-                            break
-                img = (p.get("image_front_small_url") or p.get("image_url") or "").strip()
-                return {
-                    "id": str(p.get("id") or p.get("code") or ""),
-                    "name": pname,
-                    "category": cat,
-                    "ingredients_text": ingredients,
-                    "image_url": img,
-                }
-            return None
-
-        for query in unique_queries:
-            result = _try_pick(query)
-            if result:
-                return result
-
-        raise HTTPException(
-            status_code=404,
-            detail=f"No similar product found in the same category ({category or name}). Try searching for a specific brand to compare manually."
+        BLOCKED = {"cannabis", "hemp", "cbd", "thc", "marijuana", "weed", "nicotine", "tobacco"}
+        res = httpx.get(
+            "https://world.openfoodfacts.org/cgi/search.pl",
+            params={
+                "search_terms": query,
+                "action": "process",
+                "json": "1",
+                "fields": "id,product_name,categories_tags,ingredients_text,image_front_small_url,image_url",
+                "page_size": "10",
+                "sort_by": "unique_scans_n",
+                "cc": "au",
+                "lc": "en",
+            },
+            timeout=15.0,
         )
+        data = res.json()
+        name_lower = name.lower()
+        for p in data.get("products", []):
+            pname = (p.get("product_name") or "").strip()
+            ingredients = (p.get("ingredients_text") or "").strip()
+            if not pname or not ingredients:
+                continue
+            # Skip the same product or blocked keywords
+            if pname.lower() == name_lower:
+                continue
+            if any(kw in pname.lower() for kw in BLOCKED):
+                continue
+            non_ascii = sum(1 for c in pname if ord(c) > 127)
+            if non_ascii > len(pname) * 0.3:
+                continue
+            cats = p.get("categories_tags") or []
+            cat = "General"
+            for c in cats:
+                if c.startswith("en:"):
+                    cleaned = c[3:].replace("-", " ").title()
+                    if 3 < len(cleaned) < 40:
+                        cat = cleaned
+                        break
+            img = (p.get("image_front_small_url") or p.get("image_url") or "").strip()
+            return {
+                "id": str(p.get("id") or p.get("code") or ""),
+                "name": pname,
+                "category": cat,
+                "ingredients_text": ingredients,
+                "image_url": img,
+            }
+        raise HTTPException(status_code=404, detail="No alternative product found")
     except HTTPException:
         raise
     except Exception as e:
