@@ -221,11 +221,42 @@ FOOD_CORRECTIONS: dict[str, str] = {
     "jogurt": "yoghurt", "joghurt": "yoghurt",
 }
 
-def _correct_query(q: str) -> str:
-    """Replace known misspellings in a query string with correct spellings."""
-    words = q.split()
-    corrected = [FOOD_CORRECTIONS.get(w.lower(), w) for w in words]
-    return " ".join(corrected)
+def _gemini_interpret_query(q: str) -> list:
+    """
+    Ask Gemini to interpret a grocery search query and return 1-3 OOF-friendly
+    search terms.  Corrects typos, understands natural language, resolves
+    colloquial product names.  Falls back to [q] on any error.
+    """
+    prompt = (
+        f'An Australian shopper typed \"{q}\" into a grocery product search app.\n'
+        'Your job: produce 1 to 3 search terms that will find the right products '
+        'in the Open Food Facts database.\n'
+        'Rules:\n'
+        '- Fix typos (e.g. "nutello" → "nutella", "milo choclate" → "milo chocolate")\n'
+        '- Interpret natural language (e.g. "choc hazelnut spread" → "nutella")\n'
+        '- Interpret vague intent (e.g. "no sugar cereal" → ["sugar free cereal", "low sugar cereal"])\n'
+        '- If the query is already a clear product name, just return that name\n'
+        '- Return ONLY a valid JSON array of strings — no markdown, no explanation\n'
+        '  Example: ["nutella", "hazelnut chocolate spread"]'
+    )
+    try:
+        resp = httpx.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=6.0,
+        )
+        resp.raise_for_status()
+        raw_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        # Strip markdown code fences if Gemini wraps the JSON
+        raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text)
+        raw_text = re.sub(r"\n?```$", "", raw_text).strip()
+        import json as _json
+        terms = _json.loads(raw_text)
+        if isinstance(terms, list) and terms:
+            return [str(t).strip() for t in terms if str(t).strip()][:3]
+    except Exception:
+        pass
+    return [q]  # fallback: use original query as-is
 
 def _oof_search(query: str, page_size: int = 20) -> list:
     """Fetch raw product list from Open Food Facts for a given query string."""
@@ -315,79 +346,47 @@ def _clean_products(raw: list) -> list:
 @app.get("/api/search")
 def search_products(q: str):
     try:
-        # ── Correct known misspellings before searching ──────────────
-        q_corrected = _correct_query(q)
+        # ── Gemini query interpretation ─────────────────────────────────
+        # Corrects typos, understands natural language, returns 1-3 OOF terms.
+        search_terms = _gemini_interpret_query(q)
 
-        # ── Primary search with the full query ──────────────────────────
-        primary_raw = _oof_search(q_corrected, page_size=20)
-        primary = _clean_products(primary_raw)
-
-        # Deduplicate by product id, preserving order (primary results first)
         seen_ids: set = set()
         merged: list = []
-        for prod in primary:
-            if prod["id"] and prod["id"] not in seen_ids:
-                seen_ids.add(prod["id"])
-                merged.append(prod)
 
-        # ── Fallback: search significant individual words ─────────────
-        # Kick in when the full-query search returns fewer than 3 usable results,
-        # OR always add word-level results to fill gaps (helps with typos /
-        # partial words because OOF tokenises differently per word).
-        stop_words = {"the", "and", "for", "with", "from", "that", "this",
-                      "are", "was", "but", "not", "all", "can", "has", "its"}
-        words = [w for w in re.split(r"[\s\-_/]+", q_corrected.lower())
-                 if len(w) >= 3 and w not in stop_words]
-
-        # De-duplicate words so we don't fire duplicate requests
-        unique_words = list(dict.fromkeys(words))
-
-        # Only fire word searches if we still need more results
-        if len(merged) < 6 and unique_words:
-            for word in unique_words[:3]:   # at most 3 extra requests
+        # ── Primary searches: one OOF call per Gemini-suggested term ────
+        for term in search_terms:
+            if len(merged) >= 6:
+                break
+            for prod in _clean_products(_oof_search(term, page_size=20)):
+                if prod["id"] and prod["id"] not in seen_ids:
+                    seen_ids.add(prod["id"])
+                    merged.append(prod)
                 if len(merged) >= 6:
                     break
-                word_raw = _oof_search(word, page_size=10)
-                word_products = _clean_products(word_raw)
-                for prod in word_products:
+
+        # ── Word-level fallback ──────────────────────────────────────────
+        # Split the best Gemini term into significant individual words and
+        # search those too (OOF tokenises differently per word).
+        if len(merged) < 6:
+            best_term = search_terms[0] if search_terms else q
+            stop_words = {"the", "and", "for", "with", "from", "that", "this",
+                          "are", "was", "but", "not", "all", "can", "has", "its"}
+            words = [w for w in re.split(r"[\s\-_/]+", best_term.lower())
+                     if len(w) >= 3 and w not in stop_words]
+            unique_words = list(dict.fromkeys(words))
+            for word in unique_words[:3]:
+                if len(merged) >= 6:
+                    break
+                for prod in _clean_products(_oof_search(word, page_size=10)):
                     if prod["id"] and prod["id"] not in seen_ids:
                         seen_ids.add(prod["id"])
                         merged.append(prod)
                     if len(merged) >= 6:
                         break
 
-        # ── Gemini spell-correction fallback ────────────────────────────
-        # Only fires when every OOF search returned nothing (e.g. "nutello")
-        if not merged:
-            try:
-                correction_prompt = (
-                    f'An Australian shopper typed "{q}" into a grocery product search '
-                    f'but no products were found. What product did they probably mean? '
-                    f'Reply with ONLY the corrected product name — nothing else.'
-                )
-                corr_resp = httpx.post(
-                    f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-                    json={"contents": [{"parts": [{"text": correction_prompt}]}]},
-                    timeout=8.0,
-                )
-                corrected_name = corr_resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip().strip('"')
-                if corrected_name and corrected_name.lower() != q.lower():
-                    retry_raw = _oof_search(corrected_name, page_size=20)
-                    retry_products = _clean_products(retry_raw)
-                    for prod in retry_products:
-                        if prod["id"] and prod["id"] not in seen_ids:
-                            seen_ids.add(prod["id"])
-                            merged.append(prod)
-                        if len(merged) >= 6:
-                            break
-            except Exception:
-                pass  # spell-correction is best-effort; return empty if it fails
-
         return {"products": merged[:6]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# ── Product Analysis (Gemini) ────────────────────────────
 
 @app.post("/api/analyze")
 def analyze_product(req: AnalyzeRequest):
