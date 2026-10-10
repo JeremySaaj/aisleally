@@ -356,6 +356,33 @@ def search_products(q: str):
                     if len(merged) >= 6:
                         break
 
+        # ── Gemini spell-correction fallback ────────────────────────────
+        # Only fires when every OOF search returned nothing (e.g. "nutello")
+        if not merged:
+            try:
+                correction_prompt = (
+                    f'An Australian shopper typed "{q}" into a grocery product search '
+                    f'but no products were found. What product did they probably mean? '
+                    f'Reply with ONLY the corrected product name — nothing else.'
+                )
+                corr_resp = httpx.post(
+                    f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+                    json={"contents": [{"parts": [{"text": correction_prompt}]}]},
+                    timeout=8.0,
+                )
+                corrected_name = corr_resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip().strip('"')
+                if corrected_name and corrected_name.lower() != q.lower():
+                    retry_raw = _oof_search(corrected_name, page_size=20)
+                    retry_products = _clean_products(retry_raw)
+                    for prod in retry_products:
+                        if prod["id"] and prod["id"] not in seen_ids:
+                            seen_ids.add(prod["id"])
+                            merged.append(prod)
+                        if len(merged) >= 6:
+                            break
+            except Exception:
+                pass  # spell-correction is best-effort; return empty if it fails
+
         return {"products": merged[:6]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
