@@ -474,8 +474,49 @@ def ai_pick(name: str, category: str = ""):
         original_cats = [w.lower() for w in re.split(r"[\s\-_/]+", category)]
         original_group = _food_group(name, original_cats)
 
-        # ── Step 1: Ask Gemini to name a specific alternative ─────────────
-        gemini_prompt = f"""You are a nutrition expert helping Australian shoppers find healthier alternatives in supermarkets.
+        # ── Helper — find a valid alternative in OOF results ─────────────
+        def _try_pick(query: str, strict_group: Optional[str]) -> Optional[dict]:
+            raw_products = _oof_search(query, page_size=15)
+            for p in raw_products:
+                pname = (p.get("product_name") or "").strip()
+                ingredients = (p.get("ingredients_text") or "").strip()
+                if not pname or not ingredients:
+                    continue
+                if pname.lower() == name_lower:
+                    continue
+                if any(kw in pname.lower() for kw in BLOCKED):
+                    continue
+                non_ascii = sum(1 for c in pname if ord(c) > 127)
+                if non_ascii > len(pname) * 0.3:
+                    continue
+                # Food group check — only enforced when strict_group is set
+                if strict_group is not None:
+                    pcats_check = p.get("categories_tags") or []
+                    candidate_group = _food_group(pname, [t.replace("en:", "") for t in pcats_check])
+                    if candidate_group is not None and candidate_group != strict_group:
+                        continue
+                pcats = p.get("categories_tags") or []
+                cat = "General"
+                for c in pcats:
+                    if c.startswith("en:"):
+                        cleaned = c[3:].replace("-", " ").title()
+                        if 3 < len(cleaned) < 40:
+                            cat = cleaned
+                            break
+                img = (p.get("image_front_small_url") or p.get("image_url") or "").strip()
+                return {
+                    "id": str(p.get("id") or p.get("code") or ""),
+                    "name": pname,
+                    "category": cat,
+                    "ingredients_text": ingredients,
+                    "image_url": img,
+                }
+            return None
+
+        # ── Step 1: Ask Gemini for specific AU supermarket alternatives ────
+        suggestions: list[dict] = []
+        try:
+            gemini_prompt = f"""You are a nutrition expert helping Australian shoppers find healthier alternatives in supermarkets.
 
 Product to replace:
 - Name: {name}
@@ -495,22 +536,24 @@ Return ONLY this JSON — no explanation:
   ]
 }}"""
 
-        gemini_resp = httpx.post(
-            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-            json={
-                "contents": [{"parts": [{"text": gemini_prompt}]}],
-                "generationConfig": {"response_mime_type": "application/json"},
-            },
-            timeout=15.0,
-        )
-        gemini_resp.raise_for_status()
-        raw = gemini_resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        raw = re.sub(r'^```(?:json)?\s*\n?', '', raw)
-        raw = re.sub(r'\n?```\s*$', '', raw)
-        suggestions = json_lib.loads(raw.strip()).get("suggestions", [])
+            gemini_resp = httpx.post(
+                f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+                json={
+                    "contents": [{"parts": [{"text": gemini_prompt}]}],
+                    "generationConfig": {"response_mime_type": "application/json"},
+                },
+                timeout=10.0,
+            )
+            gemini_resp.raise_for_status()
+            raw = gemini_resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            raw = re.sub(r'^```(?:json)?\s*\n?', '', raw)
+            raw = re.sub(r'\n?```\s*$', '', raw)
+            suggestions = json_lib.loads(raw.strip()).get("suggestions", [])
+        except Exception:
+            # Gemini failed — fall through to keyword-only fallbacks
+            pass
 
         # ── Step 2: Build ordered query list ──────────────────────────────
-        # Gemini's picks first, then keyword fallbacks
         queries: list[str] = []
         for s in suggestions[:2]:
             pn = (s.get("product_name") or "").strip()
@@ -520,65 +563,40 @@ Return ONLY this JSON — no explanation:
             if sq and sq != pn and sq not in queries:
                 queries.append(sq)
 
-        # Keyword fallbacks in case Gemini's picks aren't on OOF
+        # Keyword fallbacks — category words, then name words
         cat_words = [w for w in re.split(r"[\s\-_/]+", category.lower()) if len(w) >= 3]
         name_words = [w for w in re.split(r"[\s\-_/]+", name.lower()) if len(w) >= 3]
         if cat_words:
             q = " ".join(cat_words[:2])
             if q not in queries:
                 queries.append(q)
+            for w in cat_words[:2]:
+                if w not in queries:
+                    queries.append(w)
         if name_words:
             q = name_words[0]
             if q not in queries:
                 queries.append(q)
 
-        # ── Step 3: Helper — find a valid product from OOF ───────────────
-        def _try_pick(query: str) -> Optional[dict]:
-            raw_products = _oof_search(query, page_size=15)
-            for p in raw_products:
-                pname = (p.get("product_name") or "").strip()
-                ingredients = (p.get("ingredients_text") or "").strip()
-                if not pname or not ingredients:
-                    continue
-                if pname.lower() == name_lower:
-                    continue
-                if any(kw in pname.lower() for kw in BLOCKED):
-                    continue
-                non_ascii = sum(1 for c in pname if ord(c) > 127)
-                if non_ascii > len(pname) * 0.3:
-                    continue
-                pcats = p.get("categories_tags") or []
-                if original_group is not None:
-                    candidate_group = _food_group(pname, [t.replace("en:", "") for t in pcats])
-                    if candidate_group is not None and candidate_group != original_group:
-                        continue
-                cat = "General"
-                for c in pcats:
-                    if c.startswith("en:"):
-                        cleaned = c[3:].replace("-", " ").title()
-                        if 3 < len(cleaned) < 40:
-                            cat = cleaned
-                            break
-                img = (p.get("image_front_small_url") or p.get("image_url") or "").strip()
-                return {
-                    "id": str(p.get("id") or p.get("code") or ""),
-                    "name": pname,
-                    "category": cat,
-                    "ingredients_text": ingredients,
-                    "image_url": img,
-                }
-            return None
-
-        # Try all queries with the food-group filter on
+        # ── Step 3: Try with food-group filter ────────────────────────────
         for query in queries:
-            result = _try_pick(query)
+            result = _try_pick(query, original_group)
             if result:
                 return result
 
-        # Last resort: relax the food-group filter and retry Gemini's top pick
-        original_group = None
-        for query in queries[:3]:
-            result = _try_pick(query)
+        # ── Step 4: Relax food-group filter, retry all queries ────────────
+        for query in queries:
+            result = _try_pick(query, None)
+            if result:
+                return result
+
+        # ── Step 5: Absolute last resort — broadest possible terms ────────
+        generic_terms: list[str] = []
+        for w in (cat_words + name_words):
+            if len(w) >= 4 and w not in generic_terms:
+                generic_terms.append(w)
+        for term in generic_terms[:3]:
+            result = _try_pick(term, None)
             if result:
                 return result
 
@@ -588,9 +606,6 @@ Return ONLY this JSON — no explanation:
         )
     except HTTPException:
         raise
-    except httpx.HTTPStatusError as e:
-        body = e.response.text[:300] if e.response else ""
-        raise HTTPException(status_code=502, detail=f"Gemini API error: {body}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
