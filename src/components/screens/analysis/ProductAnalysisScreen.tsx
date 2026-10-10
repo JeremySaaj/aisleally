@@ -261,9 +261,28 @@ export default function ProductAnalysisScreen({
             setLoadingAiPick(true);
             setAiPickError(null);
             try {
+              // Pass condition flags so Gemini knows what was flagged
+              const flagDescriptions = conditionFlags
+                .map((f) => f.description)
+                .filter(Boolean)
+                .join("; ");
+
+              // Pass hard exclusions so Gemini avoids suggesting products
+              // that also contain the user's known trigger ingredients
+              let hardExclusions = "";
+              try {
+                const profileRaw = localStorage.getItem("aisleally-profile");
+                if (profileRaw) {
+                  const profile = JSON.parse(profileRaw);
+                  hardExclusions = (profile.hardExclusions ?? []).join(", ");
+                }
+              } catch { /* no profile */ }
+
               const params = new URLSearchParams({
                 name: product.name,
                 category: product.category ?? "",
+                flags: flagDescriptions,
+                exclusions: hardExclusions,
               });
               const res = await fetch(`/api/ai-pick?${params}`);
               if (!res.ok) {

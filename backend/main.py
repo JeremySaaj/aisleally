@@ -499,7 +499,7 @@ def _food_group(name: str, cats: list[str]) -> Optional[str]:
     return None
 
 @app.get("/api/ai-pick")
-def ai_pick(name: str, category: str = "", flags: str = ""):
+def ai_pick(name: str, category: str = "", flags: str = "", exclusions: str = ""):
     """Use Gemini to suggest a HEALTHIER alternative product, then find it on OOF."""
     try:
         name_lower = name.lower()
@@ -508,6 +508,11 @@ def ai_pick(name: str, category: str = "", flags: str = ""):
 
         # Build flags context for the prompt (e.g. "High sugar; Contains palm oil")
         flags_context = f"\n- Health issues flagged in the original: {flags}" if flags.strip() else ""
+        exclusions_list = [e.strip().lower() for e in exclusions.split(",") if e.strip()]
+        exclusions_context = (
+            f"\n- The user CANNOT have these ingredients (hard exclusions): {exclusions}"
+            if exclusions.strip() else ""
+        )
 
         # ── Helper — find a valid alternative in OOF results ─────────────
         def _try_pick(query: str, strict_group: Optional[str]) -> Optional[dict]:
@@ -524,6 +529,11 @@ def ai_pick(name: str, category: str = "", flags: str = ""):
                 non_ascii = sum(1 for c in pname if ord(c) > 127)
                 if non_ascii > len(pname) * 0.3:
                     continue
+                # Hard-exclusion filter — skip if candidate contains any banned ingredient
+                if exclusions_list:
+                    ing_lower = ingredients.lower()
+                    if any(excl in ing_lower for excl in exclusions_list):
+                        continue
                 # Food group check — only enforced when strict_group is set
                 if strict_group is not None:
                     pcats_check = p.get("categories_tags") or []
@@ -556,17 +566,19 @@ def ai_pick(name: str, category: str = "", flags: str = ""):
 
 Product to replace:
 - Name: {name}
-- Category: {category}{flags_context}
+- Category: {category}{flags_context}{exclusions_context}
 
 Your goal is to suggest TWO genuinely HEALTHIER alternatives — not just a different brand of the same thing, but something with a meaningfully better nutritional profile.
 
-The alternatives must:
-1. Be in the SAME or a closely RELATED food category (e.g. for a sugary chocolate spread → natural nut butter is ideal; for chips → rice cakes or veggie chips; keep it comparable so the user can actually swap it)
-2. Have BETTER nutrition: less sugar, fewer additives, simpler/more natural ingredients, better fats — specifically addressing the flagged issues above
-3. Be real products with a brand name that are sold in Australian supermarkets (Woolworths, Coles, Aldi, IGA)
-4. NOT be the same product as the original
+The alternatives MUST:
+1. NOT contain any of the user's hard exclusions listed above — this is the most important rule; if the original was flagged for dairy, do NOT suggest another dairy product
+2. Be in the SAME or a closely RELATED food category (e.g. for a sugary chocolate spread → natural nut butter is ideal; for chips → rice cakes or veggie chips; keep it comparable so the user can actually swap it)
+3. Have BETTER nutrition: less sugar, fewer additives, simpler/more natural ingredients, better fats — specifically addressing the flagged issues above
+4. Be real products with a brand name sold in Australian supermarkets (Woolworths, Coles, Aldi, IGA)
+5. NOT be the same product as the original
 
-Prioritise products that directly fix the flagged health issues. For example:
+Prioritise products that directly fix ALL the flagged issues. For example:
+- If the original has dairy → suggest a dairy-free alternative (e.g. oat-based, almond-based, coconut-based)
 - If the original has high sugar → suggest a low-sugar or no-added-sugar alternative
 - If it contains palm oil → suggest one without palm oil
 - If it is highly processed → suggest a whole-food or minimally processed alternative
