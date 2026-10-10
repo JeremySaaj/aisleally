@@ -237,7 +237,7 @@ export default function HealthFocusPage() {
 
           {/* Footer */}
           <p className="text-center text-xs text-gray-400 mt-6">
-            *Preferences stored locally. No account required.
+            Your health profile is securely saved to the cloud.
           </p>
         </div>
       </div>
