@@ -106,64 +106,35 @@ class AuthRequest(BaseModel):
 
 @app.post("/api/auth")
 def auth_user(req: AuthRequest):
-    """
-    Unified sign-in / sign-up endpoint.
-    Strategy: try SIGNUP first — if Supabase says the account already exists,
-    try SIGN-IN with the given password.  This correctly distinguishes
-    "new user" from "wrong password" because Supabase returns the same
-    'Invalid login credentials' error for both missing account AND wrong password
-    on the sign-in endpoint, making the two cases indistinguishable if we
-    try sign-in first.
-    Returns {"user_id": str, "email": str, "is_new_user": bool}.
-    """
     auth_base = f"{SUPABASE_URL}/auth/v1"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Content-Type": "application/json",
-    }
+    headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
     payload = {"email": req.email, "password": req.password}
-
     try:
-        # ── Step 1: attempt sign-up ──────────────────────────
-        sign_up = httpx.post(
-            f"{auth_base}/signup",
-            json=payload, headers=headers, timeout=10.0,
-        )
-        up_body = sign_up.json() if sign_up.content else {}
-
-        if sign_up.status_code in (200, 201):
-            # New account created — email confirmation must be OFF in Supabase
-            user = up_body.get("user") or up_body
-            user_id = (user.get("id") if isinstance(user, dict) else None) or req.email
-            return {"user_id": user_id, "email": req.email, "is_new_user": True}
-
-        up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
-        up_code  = up_body.get("code") or up_body.get("error_code") or ""
-
-        # Supabase signals "account already exists" in several ways depending on version
-        account_exists = (
-            "already registered" in up_error
-            or "already been registered" in up_error
-            or "already exists" in up_error
-            or up_code in ("user_already_exists", "email_exists", "over_email_send_rate_limit")
-            or sign_up.status_code in (422, 409)
-        )
-
-        if not account_exists:
-            # Some unexpected sign-up error — surface it
-            raise HTTPException(status_code=400, detail=up_body.get("msg", "Sign-up failed"))
-
-        # ── Step 2: account exists — verify password via sign-in ──
+        # Step 1: Try sign-in with given credentials
         sign_in = httpx.post(
             f"{auth_base}/token?grant_type=password",
-            json=payload, headers=headers, timeout=10.0,
-        )
+            json=payload, headers=headers, timeout=10.0)
         if sign_in.status_code == 200:
             data = sign_in.json()
             user_id = data.get("user", {}).get("id") or req.email
             return {"user_id": user_id, "email": req.email, "is_new_user": False}
 
-        # Sign-in failed → wrong password
+        # Step 2: Sign-in failed — try creating a new account
+        sign_up = httpx.post(
+            f"{auth_base}/signup",
+            json=payload, headers=headers, timeout=10.0)
+        up_body = sign_up.json() if sign_up.content else {}
+
+        if sign_up.status_code in (200, 201):
+            user = up_body.get("user") or up_body
+            user_id = (user.get("id") if isinstance(user, dict) else None) or req.email
+            return {"user_id": user_id, "email": req.email, "is_new_user": True}
+
+        # Both failed — account exists but password is wrong
+        up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
+        if "invalid" in up_error and "email" in up_error:
+            raise HTTPException(status_code=400, detail="Invalid email address.")
+
         raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
 
     except HTTPException:
