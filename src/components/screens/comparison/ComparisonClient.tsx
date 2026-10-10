@@ -25,6 +25,8 @@ export default function ComparisonClient() {
   const [result, setResult] = useState<CompareResult | null>(null);
   const [productAName, setProductAName] = useState("");
   const [productBName, setProductBName] = useState("");
+  const [productAImageUrl, setProductAImageUrl] = useState("");
+  const [productBImageUrl, setProductBImageUrl] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -42,6 +44,8 @@ export default function ComparisonClient() {
       const productB: SearchProduct = JSON.parse(rawB);
       setProductAName(productA.name);
       setProductBName(productB.name);
+      setProductAImageUrl(productA.image_url ?? "");
+      setProductBImageUrl(productB.image_url ?? "");
 
       // Load health profile
       let healthFocusAreas: string[] = [];
@@ -129,6 +133,7 @@ export default function ComparisonClient() {
             status={result.product_a.verdict as HealthStatus}
             verdictLabel={result.product_a.verdict_label}
             letter="A"
+            imageUrl={productAImageUrl}
           />
           <div className="flex items-center justify-center flex-shrink-0">
             <span className="text-lg font-bold text-gray-400">VS</span>
@@ -139,6 +144,7 @@ export default function ComparisonClient() {
             status={result.product_b.verdict as HealthStatus}
             verdictLabel={result.product_b.verdict_label}
             letter="B"
+            imageUrl={productBImageUrl}
           />
         </div>
 

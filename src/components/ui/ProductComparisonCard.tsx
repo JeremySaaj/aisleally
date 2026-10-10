@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import type { HealthStatus } from "@/types/auth";
 import CustomSectionCard from "@/components/ui/CustomSectionCard";
 
@@ -13,8 +13,10 @@ interface ProductComparisonCardProps {
   verdictLabel: string;
   /** If true, renders a dark forest green "AI PICK" banner across the top */
   isAiPick?: boolean;
-  /** "A", "B", or "C" — shown in the avatar */
+  /** "A", "B", or "C" — shown in the avatar when no image is available */
   letter: "A" | "B" | "C";
+  /** Product image URL from Open Food Facts */
+  imageUrl?: string;
   /** Additional Tailwind classes */
   className?: string;
 }
@@ -51,7 +53,7 @@ const cardStyles: Record<
 /**
  * A single product card in the side-by-head comparison view.
  *
- * Shows product name, subtitle, avatar letter, and a coloured verdict badge.
+ * Shows product name, subtitle, avatar (image or letter), and a coloured verdict badge.
  * When `isAiPick` is true, renders a dark forest green banner across the top.
  *
  * Used on: Screen 4 (Head-to-Head Comparison).
@@ -63,9 +65,12 @@ export default function ProductComparisonCard({
   verdictLabel,
   isAiPick = false,
   letter,
+  imageUrl,
   className = "",
 }: ProductComparisonCardProps) {
   const styles = cardStyles[status];
+  const [imgError, setImgError] = useState(false);
+  const showImage = imageUrl && !imgError;
 
   return (
     <CustomSectionCard
@@ -81,9 +86,19 @@ export default function ProductComparisonCard({
       )}
 
       <div className="flex flex-col items-center text-center px-4 py-5">
-        {/* Avatar letter */}
-        <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-gray-200 text-gray-500 text-lg font-bold mb-3">
-          {letter}
+        {/* Avatar — product image or letter fallback */}
+        <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-gray-200 overflow-hidden mb-3">
+          {showImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imageUrl}
+              alt={name}
+              className="w-full h-full object-contain"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <span className="text-gray-500 text-lg font-bold">{letter}</span>
+          )}
         </div>
 
         {/* Product name */}
