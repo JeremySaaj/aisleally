@@ -1,15 +1,11 @@
-import { notFound } from "next/navigation";
-import { getProductAnalysis } from "@/lib/mockAnalysis";
-import ProductAnalysisScreen from "@/components/screens/analysis/ProductAnalysisScreen";
+import ProductAnalysisClient from "@/components/screens/analysis/ProductAnalysisClient";
 
 /**
  * Route: /analyze/[id]
  *
- * Dynamic route that looks up a product analysis by id and renders it.
- * If no matching id is found, returns a 404.
- *
- * This is a Server Component — it reads the id from params, looks up
- * mock data, and passes it down to the client-side ProductAnalysisScreen.
+ * Renders a client component that reads the product from sessionStorage
+ * (set when the user clicked a search result on the home page) and calls
+ * the FastAPI backend to analyze its ingredients against the user's profile.
  */
 export default async function AnalyzeProductPage({
   params,
@@ -17,11 +13,5 @@ export default async function AnalyzeProductPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const analysis = getProductAnalysis(id);
-
-  if (!analysis) {
-    notFound();
-  }
-
-  return <ProductAnalysisScreen analysis={analysis} />;
+  return <ProductAnalysisClient productId={id} />;
 }

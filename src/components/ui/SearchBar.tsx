@@ -1,34 +1,36 @@
-import React from "react";
+import React, { type KeyboardEvent } from "react";
 
 interface SearchBarProps {
-  /** Current input value */
   value: string;
-  /** Change handler */
   onChange: (value: string) => void;
-  /** Placeholder text */
+  /** Called when user presses Enter or clicks the search icon */
+  onSearch?: (value: string) => void;
   placeholder?: string;
-  /** Additional Tailwind classes */
   className?: string;
 }
 
-/**
- * Full-width rounded search input with a magnifying glass icon.
- *
- * Visual-only for MVP — no actual search logic. The parent handles
- * the value state and can wire it to an API later.
- *
- * Used on: Screen 2 (Home & Product Search).
- */
 export default function SearchBar({
   value,
   onChange,
+  onSearch,
   placeholder = "Search for a product...",
   className = "",
 }: SearchBarProps) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && onSearch) {
+      e.preventDefault();
+      onSearch(value);
+    }
+  };
+
   return (
     <div className={`relative w-full ${className}`}>
-      {/* Magnifying glass icon */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+      <button
+        type="button"
+        onClick={() => onSearch?.(value)}
+        className="pointer-events-auto absolute inset-y-0 left-0 flex items-center pl-4 cursor-pointer"
+        aria-label="Search"
+      >
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 24 24"
@@ -37,18 +39,19 @@ export default function SearchBar({
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="h-5 w-5 text-gray-400"
+          className="h-5 w-5 text-gray-400 hover:text-primary transition-colors"
           aria-hidden="true"
         >
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
         </svg>
-      </div>
+      </button>
 
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         aria-label="Search for a grocery product"
         className="

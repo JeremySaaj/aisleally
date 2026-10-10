@@ -88,3 +88,50 @@ export function getUserId(): string {
   if (typeof window === "undefined") return "anonymous";
   return localStorage.getItem("aisleally-user-id") ?? "anonymous";
 }
+
+// ── Product Search ────────────────────────────────────────────────────────────
+
+export interface SearchProduct {
+  id: string;
+  name: string;
+  category: string;
+  ingredients_text: string;
+}
+
+export async function searchProducts(q: string): Promise<SearchProduct[]> {
+  const res = await fetch(`${BASE_URL}/api/search?q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error("Search failed");
+  const data = await res.json();
+  return (data.products ?? []) as SearchProduct[];
+}
+
+// ── Product Analysis ──────────────────────────────────────────────────────────
+
+export interface AnalyzeIngredient {
+  name: string;
+  status: "safe" | "caution" | "trigger";
+  explanation: string;
+}
+
+export interface AnalyzeResult {
+  verdict: "safe" | "caution" | "trigger";
+  verdict_title: string;
+  verdict_subtext: string;
+  condition_flags: Array<{ status: "trigger" | "caution"; description: string }>;
+  ingredients: AnalyzeIngredient[];
+}
+
+export async function analyzeProduct(req: {
+  product_name: string;
+  ingredients_text: string;
+  health_focus_areas?: string[];
+  hard_exclusions?: string[];
+}): Promise<AnalyzeResult> {
+  const res = await fetch(`${BASE_URL}/api/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Analysis failed: ${await res.text()}`);
+  return res.json();
+}
