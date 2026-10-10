@@ -178,60 +178,105 @@ def get_history(user_id: str):
 
 # ── Product Search (Open Food Facts) ────────────────────
 
-@app.get("/api/search")
-def search_products(q: str):
+BLOCKED = {"cannabis", "hemp", "cbd", "thc", "marijuana", "weed",
+           "nicotine", "tobacco", "vape", "e-cigarette"}
+
+def _oof_search(query: str, page_size: int = 20) -> list:
+    """Fetch raw product list from Open Food Facts for a given query string."""
     try:
         res = httpx.get(
             "https://world.openfoodfacts.org/cgi/search.pl",
             params={
-                "search_terms": q,
+                "search_terms": query,
                 "action": "process",
                 "json": "1",
                 "fields": "id,product_name,categories_tags,ingredients_text",
-                "page_size": "20",
+                "page_size": str(page_size),
                 "sort_by": "unique_scans_n",
                 "cc": "au",
                 "lc": "en",
             },
             timeout=15.0,
         )
-        data = res.json()
-        # Filter out cannabis/hemp/adult products and non-English junk
-        BLOCKED = {"cannabis", "hemp", "cbd", "thc", "marijuana", "weed",
-                   "nicotine", "tobacco", "vape", "e-cigarette"}
-        products = []
-        for p in data.get("products", []):
-            name = (p.get("product_name") or "").strip()
-            ingredients = (p.get("ingredients_text") or "").strip()
-            if not name or not ingredients:
-                continue
-            # Skip names/categories that contain blocked keywords
-            name_lower = name.lower()
-            if any(kw in name_lower for kw in BLOCKED):
-                continue
-            cats = p.get("categories_tags") or []
-            cats_lower = " ".join(cats).lower()
-            if any(kw in cats_lower for kw in BLOCKED):
-                continue
-            # Skip non-English product names (basic heuristic: mostly ASCII)
-            non_ascii = sum(1 for c in name if ord(c) > 127)
-            if non_ascii > len(name) * 0.3:
-                continue
-            # Pick first readable English category
-            category = "General"
-            for cat in cats:
-                if cat.startswith("en:"):
-                    cleaned = cat[3:].replace("-", " ").title()
-                    if 3 < len(cleaned) < 40:
-                        category = cleaned
+        return res.json().get("products", [])
+    except Exception:
+        return []
+
+def _clean_products(raw: list) -> list:
+    """Filter and normalise a raw OOF product list."""
+    products = []
+    for p in raw:
+        name = (p.get("product_name") or "").strip()
+        ingredients = (p.get("ingredients_text") or "").strip()
+        if not name or not ingredients:
+            continue
+        name_lower = name.lower()
+        if any(kw in name_lower for kw in BLOCKED):
+            continue
+        cats = p.get("categories_tags") or []
+        cats_lower = " ".join(cats).lower()
+        if any(kw in cats_lower for kw in BLOCKED):
+            continue
+        non_ascii = sum(1 for c in name if ord(c) > 127)
+        if non_ascii > len(name) * 0.3:
+            continue
+        category = "General"
+        for cat in cats:
+            if cat.startswith("en:"):
+                cleaned = cat[3:].replace("-", " ").title()
+                if 3 < len(cleaned) < 40:
+                    category = cleaned
+                    break
+        products.append({
+            "id": str(p.get("id") or p.get("code") or ""),
+            "name": name,
+            "category": category,
+            "ingredients_text": ingredients,
+        })
+    return products
+
+@app.get("/api/search")
+def search_products(q: str):
+    try:
+        # ── Primary search with the full query ──────────────────────────
+        primary_raw = _oof_search(q, page_size=20)
+        primary = _clean_products(primary_raw)
+
+        # Deduplicate by product id, preserving order (primary results first)
+        seen_ids: set = set()
+        merged: list = []
+        for prod in primary:
+            if prod["id"] and prod["id"] not in seen_ids:
+                seen_ids.add(prod["id"])
+                merged.append(prod)
+
+        # ── Fallback: search significant individual words ─────────────
+        # Kick in when the full-query search returns fewer than 3 usable results,
+        # OR always add word-level results to fill gaps (helps with typos /
+        # partial words because OOF tokenises differently per word).
+        stop_words = {"the", "and", "for", "with", "from", "that", "this",
+                      "are", "was", "but", "not", "all", "can", "has", "its"}
+        words = [w for w in re.split(r"[\s\-_/]+", q.lower())
+                 if len(w) >= 3 and w not in stop_words]
+
+        # De-duplicate words so we don't fire duplicate requests
+        unique_words = list(dict.fromkeys(words))
+
+        # Only fire word searches if we still need more results
+        if len(merged) < 6 and unique_words:
+            for word in unique_words[:3]:   # at most 3 extra requests
+                if len(merged) >= 6:
+                    break
+                word_raw = _oof_search(word, page_size=10)
+                word_products = _clean_products(word_raw)
+                for prod in word_products:
+                    if prod["id"] and prod["id"] not in seen_ids:
+                        seen_ids.add(prod["id"])
+                        merged.append(prod)
+                    if len(merged) >= 6:
                         break
-            products.append({
-                "id": str(p.get("id") or p.get("code") or ""),
-                "name": name,
-                "category": category,
-                "ingredients_text": ingredients,
-            })
-        return {"products": products[:6]}
+
+        return {"products": merged[:6]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
