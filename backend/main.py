@@ -108,9 +108,12 @@ class AuthRequest(BaseModel):
 def auth_user(req: AuthRequest):
     """
     Unified sign-in / sign-up endpoint.
-    - Tries to sign in first.
-    - If no account exists, creates one automatically.
-    - If account exists but password is wrong, returns 401.
+    Strategy: try SIGNUP first — if Supabase says the account already exists,
+    try SIGN-IN with the given password.  This correctly distinguishes
+    "new user" from "wrong password" because Supabase returns the same
+    'Invalid login credentials' error for both missing account AND wrong password
+    on the sign-in endpoint, making the two cases indistinguishable if we
+    try sign-in first.
     Returns {"user_id": str, "email": str, "is_new_user": bool}.
     """
     auth_base = f"{SUPABASE_URL}/auth/v1"
@@ -120,31 +123,8 @@ def auth_user(req: AuthRequest):
     }
     payload = {"email": req.email, "password": req.password}
 
-    # ── Step 1: try sign-in ──────────────────────────────
     try:
-        sign_in = httpx.post(
-            f"{auth_base}/token?grant_type=password",
-            json=payload, headers=headers, timeout=10.0,
-        )
-        if sign_in.status_code == 200:
-            data = sign_in.json()
-            user_id = data.get("user", {}).get("id") or data.get("id", req.email)
-            return {"user_id": user_id, "email": req.email, "is_new_user": False}
-
-        body = sign_in.json() if sign_in.content else {}
-        error_msg = (body.get("error_description") or body.get("msg") or "").lower()
-
-        # Wrong password for an existing account
-        if "invalid login" in error_msg or "invalid credentials" in error_msg:
-            raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Auth error: {str(e)}")
-
-    # ── Step 2: no account found — try sign-up ───────────
-    try:
+        # ── Step 1: attempt sign-up ──────────────────────────
         sign_up = httpx.post(
             f"{auth_base}/signup",
             json=payload, headers=headers, timeout=10.0,
@@ -152,20 +132,34 @@ def auth_user(req: AuthRequest):
         up_body = sign_up.json() if sign_up.content else {}
 
         if sign_up.status_code in (200, 201):
+            # New account created — email confirmation must be OFF in Supabase
             user = up_body.get("user") or up_body
-            user_id = user.get("id") if isinstance(user, dict) else req.email
-            return {"user_id": user_id or req.email, "email": req.email, "is_new_user": True}
+            user_id = (user.get("id") if isinstance(user, dict) else None) or req.email
+            return {"user_id": user_id, "email": req.email, "is_new_user": True}
 
         up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
-        if "already registered" in up_error or "already been registered" in up_error:
-            # Account exists but sign-in failed for a different reason
-            raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
 
-        raise HTTPException(status_code=400, detail=up_body.get("msg", "Sign-up failed"))
+        if "already registered" not in up_error and "already been registered" not in up_error:
+            # Some unexpected sign-up error
+            raise HTTPException(status_code=400, detail=up_body.get("msg", "Sign-up failed"))
+
+        # ── Step 2: account exists — verify password via sign-in ──
+        sign_in = httpx.post(
+            f"{auth_base}/token?grant_type=password",
+            json=payload, headers=headers, timeout=10.0,
+        )
+        if sign_in.status_code == 200:
+            data = sign_in.json()
+            user_id = data.get("user", {}).get("id") or req.email
+            return {"user_id": user_id, "email": req.email, "is_new_user": False}
+
+        # Sign-in failed → wrong password
+        raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
+
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Sign-up error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Auth error: {str(e)}")
 
 
 # ── Health Profile Endpoints ─────────────────────────────
