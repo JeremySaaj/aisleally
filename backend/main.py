@@ -145,8 +145,8 @@ def auth_user(req: AuthRequest):
             "already registered" in up_error
             or "already been registered" in up_error
             or "already exists" in up_error
-            or up_code in ("user_already_exists", "email_exists")
-            or sign_up.status_code == 422
+            or up_code in ("user_already_exists", "email_exists", "over_email_send_rate_limit")
+            or sign_up.status_code in (422, 409)
         )
 
         if not account_exists:
