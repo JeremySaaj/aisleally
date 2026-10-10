@@ -41,6 +41,11 @@ const cardStyles: Record<
     border: "!border !border-[#EF4444]",
     badgeBg: "bg-[#EF4444]",
   },
+  unknown: {
+    bg: "!bg-gray-50",
+    border: "!border !border-gray-200",
+    badgeBg: "bg-gray-300",
+  },
 };
 
 /**

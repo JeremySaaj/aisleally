@@ -43,6 +43,11 @@ const rowStyles: Record<
     border: "border border-red-200",
     nameColor: "text-[#EF4444]",
   },
+  unknown: {
+    bg: "bg-white",
+    border: "border border-gray-100",
+    nameColor: "text-primary",
+  },
 };
 
 /**

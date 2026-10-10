@@ -49,6 +49,13 @@ const statusConfig: Record<
     dot: "bg-red-500",
     defaultLabel: "Trigger",
   },
+  unknown: {
+    bg: "bg-gray-100",
+    text: "text-gray-500",
+    ring: "ring-gray-400/20",
+    dot: "bg-gray-300",
+    defaultLabel: "Tap to analyse",
+  },
 };
 
 export default function HealthStatusBadge({
