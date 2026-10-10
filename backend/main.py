@@ -137,7 +137,7 @@ def signup_user(req: SignupRequest):
         if already_exists:
             raise HTTPException(status_code=409, detail="An account with this email already exists. Please log in instead.")
 
-        raise HTTPException(status_code=400, detail=up_body.get("msg", "Sign-up failed."))
+        raise HTTPException(status_code=400, detail=up_body.get("msg") or up_body.get("error_description") or up_body.get("message") or "Sign-up failed.")
     except HTTPException:
         raise
     except Exception as e:

@@ -10,8 +10,7 @@ import PrimaryActionButton from "@/components/ui/PrimaryActionButton";
 import { validateSignupForm } from "@/lib/validation";
 import type { SignupFormErrors } from "@/types/auth";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://aisleally-backend.vercel.app";
+const BASE_URL = "https://aisleally.vercel.app";
 
 /**
  * Route: /signup

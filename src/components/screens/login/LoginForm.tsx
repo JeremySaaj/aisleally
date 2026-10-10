@@ -10,7 +10,7 @@ import PrimaryActionButton from "@/components/ui/PrimaryActionButton";
 import { validateLoginForm } from "@/lib/validation";
 import type { LoginFormErrors, AuthProps } from "@/types/auth";
 
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "";
+const BASE_URL = "https://aisleally.vercel.app";
 
 export default function LoginForm({ onAuth }: AuthProps) {
   const router = useRouter();
