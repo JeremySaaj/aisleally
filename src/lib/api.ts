@@ -135,3 +135,35 @@ export async function analyzeProduct(req: {
   if (!res.ok) throw new Error(`Analysis failed: ${await res.text()}`);
   return res.json();
 }
+
+// ── Compare ──────────────────────────────────────────────────────────────────
+
+export interface CompareRequest {
+  product_a_name: string;
+  product_a_ingredients: string;
+  product_b_name: string;
+  product_b_ingredients: string;
+  health_focus_areas: string[];
+  hard_exclusions: string[];
+}
+
+export interface CompareResult {
+  product_a: { verdict: HealthStatus; verdict_label: string; subtitle: string };
+  product_b: { verdict: HealthStatus; verdict_label: string; subtitle: string };
+  winner: "A" | "B" | "tie";
+  verdict_text: string;
+  tradeoff_text: string;
+  comparison_rows: Array<{ name: string; status_a: HealthStatus; status_b: HealthStatus }>;
+}
+
+type HealthStatus = "safe" | "caution" | "trigger" | "unknown";
+
+export async function compareProducts(req: CompareRequest): Promise<CompareResult> {
+  const res = await fetch(`${BASE_URL}/api/compare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Compare failed: ${await res.text()}`);
+  return res.json();
+}

@@ -1,15 +1,8 @@
 "use client";
 
 import { Suspense } from "react";
-import ComparisonScreen from "@/components/screens/comparison/ComparisonScreen";
+import ComparisonClient from "@/components/screens/comparison/ComparisonClient";
 
-/**
- * Route: /compare
- *
- * Screen 4 — Head-to-Head Comparison Engine.
- * Wraps ComparisonScreen in Suspense because it uses useSearchParams(),
- * which requires a Suspense boundary during static prerendering.
- */
 export default function CompareRoute() {
   return (
     <Suspense
@@ -19,7 +12,7 @@ export default function CompareRoute() {
         </div>
       }
     >
-      <ComparisonScreen />
+      <ComparisonClient />
     </Suspense>
   );
 }

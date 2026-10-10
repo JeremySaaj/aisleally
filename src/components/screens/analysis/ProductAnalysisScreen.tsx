@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { saveHistory, getUserId } from "@/lib/api";
+import { saveHistory, getUserId, searchProducts, type SearchProduct } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import type { ProductAnalysis } from "@/types/auth";
 import HealthStatusBadge from "@/components/ui/HealthStatusBadge";
@@ -40,36 +40,27 @@ export default function ProductAnalysisScreen({
   // State for the search-based comparison flow
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<{
-    id: string;
-    name: string;
-  } | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<SearchProduct | null>(null);
+  const [suggestions, setSuggestions] = useState<SearchProduct[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [loadingAiPick, setLoadingAiPick] = useState(false);
 
-  // Mock suggestions keyed by the current product id
-  const MOCK_SUGGESTIONS: Record<string, { id: string; name: string }[]> = {
-    "sanitarium-almond-milk": [
-      { id: "australias-own-almond-milk", name: "Australia's Own Almond Milk" },
-      { id: "vitasoy-almond-milk", name: "Vitasoy Almond Milk" },
-      { id: "almond-breeze-unsweetened", name: "Almond Breeze Unsweetened" },
-    ],
-    "helgas-gluten-free-bread": [
-      { id: "bakers-delight-wholemeal", name: "Baker's Delight Wholemeal" },
-      { id: "tip-top-gluten-free", name: "Tip Top Gluten Free" },
-      { id: "wonder-white-gluten-free", name: "Wonder White Gluten Free" },
-    ],
-    "bega-natural-cheese-slices": [
-      { id: "bega-organic-cheddar", name: "Bega Organic Cheddar" },
-      { id: "mainland-tasty", name: "Mainland Tasty" },
-      { id: "cracker-barrel-vintage", name: "Cracker Barrel Vintage" },
-    ],
-  };
+  // Live search via Open Food Facts
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSuggestions([]); return; }
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const results = await searchProducts(searchQuery);
+        // Exclude the product currently being analysed
+        setSuggestions(results.filter((r) => r.id !== product.id));
+      } catch { setSuggestions([]); }
+      finally { setIsSearching(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery, product.id]);
 
-  const allSuggestions = MOCK_SUGGESTIONS[product.id] ?? [];
-  const filteredSuggestions = searchQuery.trim()
-    ? allSuggestions.filter((s) =>
-        s.name.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : [];
+  const filteredSuggestions = suggestions;
 
   return (
     <div className="min-h-screen bg-cream">
@@ -180,14 +171,19 @@ export default function ProductAnalysisScreen({
             </div>
 
             {/* ── Suggestions dropdown ── */}
-            {showSuggestions && filteredSuggestions.length > 0 && (
+            {showSuggestions && searchQuery.trim() && (
               <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+                {isSearching && (
+                  <div className="px-4 py-3 text-sm text-gray-400">Searching…</div>
+                )}
+                {!isSearching && filteredSuggestions.length === 0 && (
+                  <div className="px-4 py-3 text-sm text-gray-400">No products found</div>
+                )}
                 {filteredSuggestions.map((suggestion) => (
                   <button
                     key={suggestion.id}
                     type="button"
                     onMouseDown={(e) => {
-                      // Use onMouseDown so it fires before onBlur
                       e.preventDefault();
                       setSelectedProduct(suggestion);
                       setSearchQuery("");
@@ -195,7 +191,8 @@ export default function ProductAnalysisScreen({
                     }}
                     className="w-full text-left px-4 py-3 text-sm text-primary hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-100 last:border-b-0"
                   >
-                    {suggestion.name}
+                    <span className="font-medium">{suggestion.name}</span>
+                    <span className="ml-2 text-xs text-gray-400">{suggestion.category}</span>
                   </button>
                 ))}
               </div>
@@ -229,11 +226,19 @@ export default function ProductAnalysisScreen({
             <div className="mt-4">
               <FlowButton
                 text="Run Head-to-Head Comparison"
-                onClick={() =>
-                  router.push(
-                    `/compare?productA=${product.id}&productB=${selectedProduct.id}&aiPick=true`,
-                  )
-                }
+                onClick={() => {
+                  // Store product B so ComparisonClient can read it
+                  sessionStorage.setItem(
+                    `aisleally-product-${selectedProduct.id}`,
+                    JSON.stringify(selectedProduct),
+                  );
+                  // Also make product A available to compare page (re-store with full ingredients)
+                  sessionStorage.setItem(
+                    `aisleally-compare-a`,
+                    JSON.stringify({ id: product.id, name: product.name, category: product.category }),
+                  );
+                  router.push(`/compare?productA=${product.id}&productB=${selectedProduct.id}`);
+                }}
               />
             </div>
           )}
@@ -249,14 +254,29 @@ export default function ProductAnalysisScreen({
         {/* ===== AI PICK BUTTON ===== */}
         <button
           type="button"
-          onClick={() =>
-            router.push(
-              `/compare?productA=${product.id}&productB=ai-pick`,
-            )
-          }
-          className="w-full rounded-xl border-[1.5px] border-[#1B4332] bg-transparent text-[#1B4332] text-sm font-semibold py-3 px-6 hover:bg-[#1B4332] hover:text-white transition-colors cursor-pointer"
+          disabled={loadingAiPick}
+          onClick={async () => {
+            setLoadingAiPick(true);
+            try {
+              const params = new URLSearchParams({
+                name: product.name,
+                category: product.category ?? "",
+              });
+              const res = await fetch(`/api/ai-pick?${params}`);
+              if (!res.ok) throw new Error("No alternative found");
+              const alt = await res.json();
+              // Store AI pick in sessionStorage so ComparisonClient can read it
+              sessionStorage.setItem(`aisleally-product-${alt.id}`, JSON.stringify(alt));
+              router.push(`/compare?productA=${product.id}&productB=${alt.id}`);
+            } catch {
+              alert("Couldn't find a similar product to compare. Try searching manually above.");
+            } finally {
+              setLoadingAiPick(false);
+            }
+          }}
+          className="w-full rounded-xl border-[1.5px] border-[#1B4332] bg-transparent text-[#1B4332] text-sm font-semibold py-3 px-6 hover:bg-[#1B4332] hover:text-white transition-colors cursor-pointer disabled:opacity-50"
         >
-          ⚡ Compare with AI Pick
+          {loadingAiPick ? "Finding alternative…" : "⚡ Compare with AI Pick"}
         </button>
       </main>
     </div>
