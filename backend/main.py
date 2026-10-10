@@ -747,8 +747,8 @@ Return a JSON object in this exact format:
     "subtitle": "one short reason why (max 8 words)"
   }},
   "winner": "A",
-  "verdict_text": "2 sentence explanation of which is better for this user and why",
-  "tradeoff_text": "1 sentence describing any trade-offs between the two products",
+  "verdict_text": "2 sentence explanation of which is better for this user and why — use the ACTUAL product names (not 'Product A' or 'Product B')",
+  "tradeoff_text": "1 sentence describing any trade-offs — use the ACTUAL product names (not 'Product A' or 'Product B')",
   "comparison_rows": [
     {{
       "name": "Ingredient Name",
