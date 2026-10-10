@@ -34,8 +34,9 @@ export interface LoginFormErrors {
  * "safe"    → green  (#22C55E) — item is compatible with user's health profile
  * "caution" → orange (#F97316) — minor concern (e.g., trace allergens)
  * "trigger" → red    (#EF4444) — item may trigger a sensitivity/allergy
+ * "unknown" → grey              — not yet analysed
  */
-export type HealthStatus = "safe" | "caution" | "trigger";
+export type HealthStatus = "safe" | "caution" | "trigger" | "unknown";
 
 /**
  * Shape of the saved health profile from Screen 1 (stored in localStorage

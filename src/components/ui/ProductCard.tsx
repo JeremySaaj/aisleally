@@ -6,8 +6,8 @@ interface ProductCardProps {
   name: string;
   /** Category text, e.g. "Dairy-free · Beverages" */
   category: string;
-  /** Safety status for the coloured dot */
-  status: HealthStatus;
+  /** Safety status for the coloured dot — omit for unanalysed search results */
+  status?: HealthStatus;
   /** Optional click handler */
   onClick?: () => void;
   /** Additional Tailwind classes */
@@ -22,12 +22,14 @@ const dotColors: Record<HealthStatus, string> = {
   safe: "bg-[#22C55E]",
   caution: "bg-[#F97316]",
   trigger: "bg-[#EF4444]",
+  unknown: "bg-gray-300",
 };
 
 const statusLabels: Record<HealthStatus, string> = {
   safe: "Safe",
   caution: "Caution — check ingredients",
   trigger: "Trigger — may affect you",
+  unknown: "Tap to analyse",
 };
 
 /**
@@ -39,7 +41,7 @@ const statusLabels: Record<HealthStatus, string> = {
 export default function ProductCard({
   name,
   category,
-  status,
+  status = "unknown",
   onClick,
   className = "",
 }: ProductCardProps) {

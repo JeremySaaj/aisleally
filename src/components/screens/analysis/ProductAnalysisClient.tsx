@@ -72,8 +72,10 @@ export default function ProductAnalysisClient({ productId }: Props) {
         });
         setAnalysis(mapToProductAnalysis(product, result));
       } catch (e) {
-        setError("Analysis failed. Please try again.");
-        console.error(e);
+        const msg = e instanceof Error ? e.message : String(e);
+        // Show the actual backend error for easier debugging
+        setError(msg.length > 200 ? msg.slice(0, 200) + "…" : msg);
+        console.error("analyzeProduct error:", e);
       }
     }
 

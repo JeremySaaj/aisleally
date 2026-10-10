@@ -136,7 +136,7 @@ export default function HomePage() {
                   key={product.id}
                   name={product.name}
                   category={product.category}
-                  status="safe"
+                  status="unknown"
                   onClick={() => handleSelectProduct(product)}
                 />
               ))}

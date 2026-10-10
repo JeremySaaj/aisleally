@@ -71,6 +71,15 @@ class AnalyzeRequest(BaseModel):
 def root():
     return {"status": "AisleAlly API is running"}
 
+@app.get("/api/debug")
+def debug_config():
+    """Check which environment variables are configured (values hidden)."""
+    return {
+        "supabase_url_set": bool(SUPABASE_URL),
+        "supabase_key_set": bool(SUPABASE_KEY),
+        "gemini_api_key_set": bool(GEMINI_API_KEY),
+    }
+
 # ── Health Profile Endpoints ─────────────────────────────
 
 @app.post("/api/profile")
@@ -161,25 +170,41 @@ def search_products(q: str):
                 "action": "process",
                 "json": "1",
                 "fields": "id,product_name,categories_tags,ingredients_text",
-                "page_size": "12",
+                "page_size": "20",
                 "sort_by": "unique_scans_n",
+                "cc": "au",
+                "lc": "en",
             },
             timeout=15.0,
         )
         data = res.json()
+        # Filter out cannabis/hemp/adult products and non-English junk
+        BLOCKED = {"cannabis", "hemp", "cbd", "thc", "marijuana", "weed",
+                   "nicotine", "tobacco", "vape", "e-cigarette"}
         products = []
         for p in data.get("products", []):
             name = (p.get("product_name") or "").strip()
             ingredients = (p.get("ingredients_text") or "").strip()
             if not name or not ingredients:
                 continue
-            # Pick first readable English category
+            # Skip names/categories that contain blocked keywords
+            name_lower = name.lower()
+            if any(kw in name_lower for kw in BLOCKED):
+                continue
             cats = p.get("categories_tags") or []
+            cats_lower = " ".join(cats).lower()
+            if any(kw in cats_lower for kw in BLOCKED):
+                continue
+            # Skip non-English product names (basic heuristic: mostly ASCII)
+            non_ascii = sum(1 for c in name if ord(c) > 127)
+            if non_ascii > len(name) * 0.3:
+                continue
+            # Pick first readable English category
             category = "General"
             for cat in cats:
                 if cat.startswith("en:"):
                     cleaned = cat[3:].replace("-", " ").title()
-                    if len(cleaned) > 2:
+                    if 3 < len(cleaned) < 40:
                         category = cleaned
                         break
             products.append({
@@ -259,8 +284,16 @@ Rules:
 
         result = json_lib.loads(text)
         return result
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:500] if e.response else ""
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini API error ({e.response.status_code}): {body}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Analyze error: {str(e)}")
 
 # ── Gemini Ingredient Explanation ────────────────────────
 
