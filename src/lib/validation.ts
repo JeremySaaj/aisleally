@@ -55,3 +55,27 @@ export function validateLoginForm(
 
   return errors;
 }
+
+/**
+ * Validate the full sign-up form.
+ * @returns An object with optional error messages keyed by field name.
+ *          An empty object means the form is valid.
+ */
+export function validateSignupForm(
+  name: string,
+  email: string,
+  password: string
+): { name?: string; email?: string; password?: string } {
+  const errors: { name?: string; email?: string; password?: string } = {};
+
+  const nameError = validateRequired(name, "Full name");
+  if (nameError) errors.name = nameError;
+
+  const emailError = validateEmail(email);
+  if (emailError) errors.email = emailError;
+
+  const passwordError = validateRequired(password, "Password");
+  if (passwordError) errors.password = passwordError;
+
+  return errors;
+}

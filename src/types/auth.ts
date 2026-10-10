@@ -29,6 +29,20 @@ export interface LoginFormErrors {
   password?: string;
 }
 
+/** Form field values for the sign-up form */
+export interface SignupFormData {
+  name: string;
+  email: string;
+  password: string;
+}
+
+/** Validation errors keyed by field name */
+export interface SignupFormErrors {
+  name?: string;
+  email?: string;
+  password?: string;
+}
+
 /**
  * Health status types used by HealthStatusBadge and grocery item lists.
  * "safe"    → green  (#22C55E) — item is compatible with user's health profile

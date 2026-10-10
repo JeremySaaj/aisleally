@@ -2,6 +2,7 @@
 
 import { useState, useCallback, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import CustomSectionCard from "@/components/ui/CustomSectionCard";
 import PrimaryActionButton from "@/components/ui/PrimaryActionButton";
 import { validateLoginForm } from "@/lib/validation";
@@ -39,7 +40,7 @@ export default function LoginForm({ onAuth }: AuthProps) {
         });
 
         if (res.status === 401) {
-          setAuthError("Incorrect password. Please try again.");
+          setAuthError("Incorrect email or password.");
           return;
         }
         if (!res.ok) {
@@ -54,7 +55,7 @@ export default function LoginForm({ onAuth }: AuthProps) {
 
         onAuth?.(email);
 
-        // New users → onboarding; returning users → home (profile already set)
+        // Route by is_new_user from the auth response
         router.push(data.is_new_user ? "/health-focus" : "/home");
       } catch {
         setAuthError("Network error. Please check your connection.");
@@ -140,14 +141,18 @@ export default function LoginForm({ onAuth }: AuthProps) {
 
         {/* ---- Submit ---- */}
         <div className="pt-2">
-          <PrimaryActionButton label="Sign In / Sign Up" type="submit" isLoading={isSubmitting} />
+          <PrimaryActionButton label="Sign In" type="submit" isLoading={isSubmitting} />
         </div>
 
         {/* ---- Helper Text ---- */}
         <p className="text-center text-xs text-slate-500 pt-1 leading-relaxed">
-          New here? Enter any email and a password to create your account automatically.
-          <br />
-          Returning? Use the same credentials to sign back in.
+          Don&apos;t have an account?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-emerald-600 hover:text-emerald-500 hover:underline"
+          >
+            Sign up
+          </Link>
         </p>
       </form>
     </CustomSectionCard>

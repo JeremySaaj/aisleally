@@ -104,38 +104,63 @@ class AuthRequest(BaseModel):
     email: str
     password: str
 
-@app.post("/api/auth")
-def auth_user(req: AuthRequest):
+class SignupRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+@app.post("/api/auth/signup")
+def signup_user(req: SignupRequest):
+    """Create a new account via Supabase email/password sign-up."""
     auth_base = f"{SUPABASE_URL}/auth/v1"
     headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
     payload = {"email": req.email, "password": req.password}
     try:
-        # Step 1: Try sign-in with given credentials
-        sign_in = httpx.post(
+        res = httpx.post(
+            f"{auth_base}/signup",
+            json=payload, headers=headers, timeout=10.0)
+        body = res.json() if res.content else {}
+        body_text = res.text.lower() if res.content else ""
+
+        # Email already registered
+        if res.status_code == 422 or "already registered" in body_text or "already exists" in body_text:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Please log in instead.")
+
+        # Account created
+        if res.status_code in (200, 201):
+            user = body.get("user") or body
+            user_id = (user.get("id") if isinstance(user, dict) else None) or req.email
+            return {"user_id": user_id, "email": req.email, "name": req.name, "is_new_user": True}
+
+        # Anything else is a bad request (weak password, invalid email, etc.)
+        detail = (body.get("msg") or body.get("error_description")
+                  or "Unable to create account. Please try again.")
+        raise HTTPException(status_code=400, detail=detail)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Auth error: {str(e)}")
+
+
+@app.post("/api/auth")
+def auth_user(req: AuthRequest):
+    """Log in with an existing account via the Supabase password grant."""
+    auth_base = f"{SUPABASE_URL}/auth/v1"
+    headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
+    payload = {"email": req.email, "password": req.password}
+    try:
+        res = httpx.post(
             f"{auth_base}/token?grant_type=password",
             json=payload, headers=headers, timeout=10.0)
-        if sign_in.status_code == 200:
-            data = sign_in.json()
+        if res.status_code == 200:
+            data = res.json()
             user_id = data.get("user", {}).get("id") or req.email
             return {"user_id": user_id, "email": req.email, "is_new_user": False}
 
-        # Step 2: Sign-in failed — try creating a new account
-        sign_up = httpx.post(
-            f"{auth_base}/signup",
-            json=payload, headers=headers, timeout=10.0)
-        up_body = sign_up.json() if sign_up.content else {}
-
-        if sign_up.status_code in (200, 201):
-            user = up_body.get("user") or up_body
-            user_id = (user.get("id") if isinstance(user, dict) else None) or req.email
-            return {"user_id": user_id, "email": req.email, "is_new_user": True}
-
-        # Both failed — account exists but password is wrong
-        up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
-        if "invalid" in up_error and "email" in up_error:
-            raise HTTPException(status_code=400, detail="Invalid email address.")
-
-        raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
     except HTTPException:
         raise
