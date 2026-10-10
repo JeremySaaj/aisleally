@@ -80,6 +80,24 @@ def debug_config():
         "gemini_api_key_set": bool(GEMINI_API_KEY),
     }
 
+@app.get("/api/models")
+def list_gemini_models():
+    """List available Gemini models for this API key."""
+    try:
+        res = httpx.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}",
+            timeout=10.0,
+        )
+        data = res.json()
+        # Return just the names that support generateContent
+        names = [
+            m["name"] for m in data.get("models", [])
+            if "generateContent" in m.get("supportedGenerationMethods", [])
+        ]
+        return {"models": names}
+    except Exception as e:
+        return {"error": str(e)}
+
 # ── Health Profile Endpoints ─────────────────────────────
 
 @app.post("/api/profile")
