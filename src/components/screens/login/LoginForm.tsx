@@ -45,6 +45,9 @@ export default function LoginForm({ onAuth }: AuthProps) {
       // Simulate a brief network delay for realistic UX
       await new Promise((resolve) => setTimeout(resolve, 800));
 
+      // Persist user identity to localStorage so getUserId() works
+      localStorage.setItem("aisleally-user-id", email);
+
       // Lift auth state up if callback provided
       onAuth?.(email);
 
