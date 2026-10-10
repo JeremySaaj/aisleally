@@ -236,7 +236,7 @@ def _oof_search(query: str, page_size: int = 20) -> list:
                 "search_terms": query,
                 "action": "process",
                 "json": "1",
-                "fields": "id,product_name,categories_tags,ingredients_text,image_front_small_url,image_url",
+                "fields": "id,product_name,categories_tags,ingredients_text,ingredients_text_en,image_front_small_url,image_url",
                 "page_size": str(page_size),
                 "sort_by": "unique_scans_n",
                 "lc": "en",
@@ -247,12 +247,30 @@ def _oof_search(query: str, page_size: int = 20) -> list:
     except Exception:
         return []
 
+
+def _is_likely_english(text: str) -> bool:
+    """Heuristic: <=15 % non-ASCII characters -> probably English / Latin-script."""
+    if not text:
+        return False
+    non_ascii = sum(1 for c in text if ord(c) > 127)
+    return non_ascii <= len(text) * 0.15
+
+def _best_ingredients(p: dict) -> str:
+    """Return the best English ingredients text for an OOF product dict."""
+    en = (p.get("ingredients_text_en") or "").strip()
+    generic = (p.get("ingredients_text") or "").strip()
+    if en and _is_likely_english(en):
+        return en
+    if generic and _is_likely_english(generic):
+        return generic
+    return ""
+
 def _clean_products(raw: list) -> list:
     """Filter and normalise a raw OOF product list."""
     products = []
     for p in raw:
         name = (p.get("product_name") or "").strip()
-        ingredients = (p.get("ingredients_text") or "").strip()
+        ingredients = _best_ingredients(p)
         if not name or not ingredients:
             continue
         name_lower = name.lower()
@@ -348,6 +366,8 @@ User health profile: {profile_context}
 
 Product: {req.product_name}
 Ingredients: {req.ingredients_text}
+
+Note: If any ingredient names appear in a non-English language, treat them by their standard English equivalent (e.g. "sucre" -> sugar, "farine de ble" -> wheat flour) and analyse them the same way.
 
 Analyze each ingredient against the user's health profile. Return a JSON object in this exact format:
 
@@ -482,7 +502,7 @@ def ai_pick(name: str, category: str = "", flags: str = ""):
             raw_products = _oof_search(query, page_size=15)
             for p in raw_products:
                 pname = (p.get("product_name") or "").strip()
-                ingredients = (p.get("ingredients_text") or "").strip()
+                ingredients = _best_ingredients(p)
                 if not pname or not ingredients:
                     continue
                 if pname.lower() == name_lower:
