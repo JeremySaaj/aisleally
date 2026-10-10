@@ -467,12 +467,15 @@ def _food_group(name: str, cats: list[str]) -> Optional[str]:
     return None
 
 @app.get("/api/ai-pick")
-def ai_pick(name: str, category: str = ""):
-    """Use Gemini to suggest a specific real alternative product, then find it on OOF."""
+def ai_pick(name: str, category: str = "", flags: str = ""):
+    """Use Gemini to suggest a HEALTHIER alternative product, then find it on OOF."""
     try:
         name_lower = name.lower()
         original_cats = [w.lower() for w in re.split(r"[\s\-_/]+", category)]
         original_group = _food_group(name, original_cats)
+
+        # Build flags context for the prompt (e.g. "High sugar; Contains palm oil")
+        flags_context = f"\n- Health issues flagged in the original: {flags}" if flags.strip() else ""
 
         # ── Helper — find a valid alternative in OOF results ─────────────
         def _try_pick(query: str, strict_group: Optional[str]) -> Optional[dict]:
@@ -513,26 +516,34 @@ def ai_pick(name: str, category: str = ""):
                 }
             return None
 
-        # ── Step 1: Ask Gemini for specific AU supermarket alternatives ────
+        # ── Step 1: Ask Gemini for HEALTHIER AU supermarket alternatives ──
         suggestions: list[dict] = []
+        gemini_search_queries: list[str] = []
         try:
-            gemini_prompt = f"""You are a nutrition expert helping Australian shoppers find healthier alternatives in supermarkets.
+            gemini_prompt = f"""You are a nutrition expert helping Australian shoppers find a HEALTHIER alternative to a product they scanned.
 
 Product to replace:
 - Name: {name}
-- Category: {category}
+- Category: {category}{flags_context}
 
-Suggest TWO specific alternative products that:
-1. Are in the SAME food category (e.g. if it's chips, suggest other chip/snack brands — NOT chocolate or completely different foods)
-2. Are real products commonly sold in Australian supermarkets (Woolworths, Coles, Aldi, IGA)
-3. Have a specific brand name (not just a generic category like "rice cakes")
-4. Are different from the original product
+Your goal is to suggest TWO genuinely HEALTHIER alternatives — not just a different brand of the same thing, but something with a meaningfully better nutritional profile.
+
+The alternatives must:
+1. Be in the SAME or a closely RELATED food category (e.g. for a sugary chocolate spread → natural nut butter is ideal; for chips → rice cakes or veggie chips; keep it comparable so the user can actually swap it)
+2. Have BETTER nutrition: less sugar, fewer additives, simpler/more natural ingredients, better fats — specifically addressing the flagged issues above
+3. Be real products with a brand name that are sold in Australian supermarkets (Woolworths, Coles, Aldi, IGA)
+4. NOT be the same product as the original
+
+Prioritise products that directly fix the flagged health issues. For example:
+- If the original has high sugar → suggest a low-sugar or no-added-sugar alternative
+- If it contains palm oil → suggest one without palm oil
+- If it is highly processed → suggest a whole-food or minimally processed alternative
 
 Return ONLY this JSON — no explanation:
 {{
   "suggestions": [
-    {{"product_name": "Brand Product Name", "search_query": "short 2-3 word search"}},
-    {{"product_name": "Brand Product Name 2", "search_query": "short 2-3 word search"}}
+    {{"product_name": "Specific Brand Name", "search_query": "short 2-3 word OOF search", "healthier_because": "one sentence why it is healthier"}},
+    {{"product_name": "Specific Brand Name 2", "search_query": "short 2-3 word OOF search", "healthier_because": "one sentence why it is healthier"}}
   ]
 }}"""
 
@@ -554,43 +565,53 @@ Return ONLY this JSON — no explanation:
             pass
 
         # ── Step 2: Build ordered query list ──────────────────────────────
-        queries: list[str] = []
+        # Gemini queries — no food-group filter (Gemini is trusted to pick something reasonable)
+        gemini_queries: list[str] = []
         for s in suggestions[:2]:
             pn = (s.get("product_name") or "").strip()
             sq = (s.get("search_query") or "").strip()
-            if pn and pn not in queries:
-                queries.append(pn)
-            if sq and sq != pn and sq not in queries:
-                queries.append(sq)
+            if pn and pn not in gemini_queries:
+                gemini_queries.append(pn)
+            if sq and sq != pn and sq not in gemini_queries:
+                gemini_queries.append(sq)
 
         # Keyword fallbacks — category words, then name words
         cat_words = [w for w in re.split(r"[\s\-_/]+", category.lower()) if len(w) >= 3]
         name_words = [w for w in re.split(r"[\s\-_/]+", name.lower()) if len(w) >= 3]
+        keyword_queries: list[str] = []
         if cat_words:
             q = " ".join(cat_words[:2])
-            if q not in queries:
-                queries.append(q)
+            if q not in gemini_queries and q not in keyword_queries:
+                keyword_queries.append(q)
             for w in cat_words[:2]:
-                if w not in queries:
-                    queries.append(w)
+                if w not in gemini_queries and w not in keyword_queries:
+                    keyword_queries.append(w)
         if name_words:
             q = name_words[0]
-            if q not in queries:
-                queries.append(q)
+            if q not in gemini_queries and q not in keyword_queries:
+                keyword_queries.append(q)
 
-        # ── Step 3: Try with food-group filter ────────────────────────────
-        for query in queries:
-            result = _try_pick(query, original_group)
-            if result:
-                return result
-
-        # ── Step 4: Relax food-group filter, retry all queries ────────────
-        for query in queries:
+        # ── Step 3: Gemini suggestions — no food-group filter ────────────
+        # We trust Gemini to pick something in the right ballpark; filter would
+        # wrongly block "almond butter" suggested as healthier alt to Nutella
+        for query in gemini_queries:
             result = _try_pick(query, None)
             if result:
                 return result
 
-        # ── Step 5: Absolute last resort — broadest possible terms ────────
+        # ── Step 4: Keyword fallbacks with food-group filter ─────────────
+        for query in keyword_queries:
+            result = _try_pick(query, original_group)
+            if result:
+                return result
+
+        # ── Step 5: Relax food-group filter, retry keyword queries ────────
+        for query in keyword_queries:
+            result = _try_pick(query, None)
+            if result:
+                return result
+
+        # ── Step 6: Absolute last resort — broadest possible terms ────────
         generic_terms: list[str] = []
         for w in (cat_words + name_words):
             if len(w) >= 4 and w not in generic_terms:

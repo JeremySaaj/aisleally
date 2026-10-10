@@ -44,6 +44,7 @@ export default function ProductAnalysisScreen({
   const [suggestions, setSuggestions] = useState<SearchProduct[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [loadingAiPick, setLoadingAiPick] = useState(false);
+  const [aiPickError, setAiPickError] = useState<string | null>(null);
 
   // Live search via Open Food Facts
   useEffect(() => {
@@ -258,19 +259,25 @@ export default function ProductAnalysisScreen({
           disabled={loadingAiPick}
           onClick={async () => {
             setLoadingAiPick(true);
+            setAiPickError(null);
             try {
               const params = new URLSearchParams({
                 name: product.name,
                 category: product.category ?? "",
               });
               const res = await fetch(`/api/ai-pick?${params}`);
-              if (!res.ok) throw new Error("No alternative found");
+              if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.detail || "No similar product found");
+              }
               const alt = await res.json();
               // Store AI pick in sessionStorage so ComparisonClient can read it
               sessionStorage.setItem(`aisleally-product-${alt.id}`, JSON.stringify(alt));
               router.push(`/compare?productA=${product.id}&productB=${alt.id}`);
-            } catch {
-              alert("Couldn't find a similar product to compare. Try searching manually above.");
+            } catch (e) {
+              setAiPickError(
+                e instanceof Error ? e.message : "Couldn't find a similar product to compare."
+              );
             } finally {
               setLoadingAiPick(false);
             }
@@ -279,6 +286,16 @@ export default function ProductAnalysisScreen({
         >
           {loadingAiPick ? "Finding alternative…" : "⚡ Compare with AI Pick"}
         </button>
+
+        {/* AI pick error — shown inline, not as an alert() */}
+        {aiPickError && (
+          <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+            <p className="font-semibold mb-0.5">No match found</p>
+            <p className="text-xs text-amber-700">
+              We couldn&apos;t find a similar product in the same category. Try searching for a specific brand above to compare manually.
+            </p>
+          </div>
+        )}
       </main>
     </div>
   );
