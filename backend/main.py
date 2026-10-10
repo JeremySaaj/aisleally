@@ -111,38 +111,37 @@ class SignupRequest(BaseModel):
 
 @app.post("/api/auth/signup")
 def signup_user(req: SignupRequest):
-    """Create a new account via Supabase email/password sign-up."""
     auth_base = f"{SUPABASE_URL}/auth/v1"
     headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
-    payload = {"email": req.email, "password": req.password}
     try:
-        res = httpx.post(
+        sign_up = httpx.post(
             f"{auth_base}/signup",
-            json=payload, headers=headers, timeout=10.0)
-        body = res.json() if res.content else {}
-        body_text = res.text.lower() if res.content else ""
+            json={"email": req.email, "password": req.password},
+            headers=headers, timeout=10.0)
+        up_body = sign_up.json() if sign_up.content else {}
 
-        # Email already registered
-        if res.status_code == 422 or "already registered" in body_text or "already exists" in body_text:
-            raise HTTPException(
-                status_code=409,
-                detail="An account with this email already exists. Please log in instead.")
-
-        # Account created
-        if res.status_code in (200, 201):
-            user = body.get("user") or body
+        if sign_up.status_code in (200, 201):
+            user = up_body.get("user") or up_body
             user_id = (user.get("id") if isinstance(user, dict) else None) or req.email
             return {"user_id": user_id, "email": req.email, "name": req.name, "is_new_user": True}
 
-        # Anything else is a bad request (weak password, invalid email, etc.)
-        detail = (body.get("msg") or body.get("error_description")
-                  or "Unable to create account. Please try again.")
-        raise HTTPException(status_code=400, detail=detail)
+        up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
+        up_code = up_body.get("code") or up_body.get("error_code") or ""
 
+        already_exists = (
+            "already registered" in up_error
+            or "already exists" in up_error
+            or up_code in ("user_already_exists", "email_exists")
+            or sign_up.status_code == 422
+        )
+        if already_exists:
+            raise HTTPException(status_code=409, detail="An account with this email already exists. Please log in instead.")
+
+        raise HTTPException(status_code=400, detail=up_body.get("msg", "Sign-up failed."))
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Auth error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Signup error: {str(e)}")
 
 
 @app.post("/api/auth")
