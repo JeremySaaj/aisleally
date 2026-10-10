@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import type { HealthStatus } from "@/types/auth";
 
 interface ProductCardProps {
@@ -8,6 +8,8 @@ interface ProductCardProps {
   category: string;
   /** Safety status for the coloured dot — omit for unanalysed search results */
   status?: HealthStatus;
+  /** Product image URL from Open Food Facts */
+  imageUrl?: string;
   /** Optional click handler */
   onClick?: () => void;
   /** Additional Tailwind classes */
@@ -42,10 +44,13 @@ export default function ProductCard({
   name,
   category,
   status = "unknown",
+  imageUrl,
   onClick,
   className = "",
 }: ProductCardProps) {
   const firstLetter = name.charAt(0).toUpperCase();
+  const [imgError, setImgError] = useState(false);
+  const showImage = imageUrl && !imgError;
 
   const Wrapper = onClick ? "button" : "div";
 
@@ -66,9 +71,19 @@ export default function ProductCard({
         ${className}
       `}
     >
-      {/* Avatar — first letter */}
-      <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-lg bg-gray-100 text-gray-500 text-lg font-bold">
-        {firstLetter}
+      {/* Avatar — product image or first letter fallback */}
+      <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-lg bg-gray-100 overflow-hidden">
+        {showImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt={name}
+            className="w-full h-full object-contain"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <span className="text-gray-500 text-lg font-bold">{firstLetter}</span>
+        )}
       </div>
 
       {/* Product info */}

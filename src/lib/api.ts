@@ -96,6 +96,7 @@ export interface SearchProduct {
   name: string;
   category: string;
   ingredients_text: string;
+  image_url?: string;
 }
 
 export async function searchProducts(q: string): Promise<SearchProduct[]> {

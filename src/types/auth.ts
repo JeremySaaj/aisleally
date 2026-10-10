@@ -58,6 +58,8 @@ export interface Product {
   /** e.g. "Dairy-free · Beverages" */
   category: string;
   status: HealthStatus;
+  /** Product image URL from Open Food Facts */
+  image_url?: string;
 }
 
 /**

@@ -181,6 +181,52 @@ def get_history(user_id: str):
 BLOCKED = {"cannabis", "hemp", "cbd", "thc", "marijuana", "weed",
            "nicotine", "tobacco", "vape", "e-cigarette"}
 
+# Common food-term misspellings → correct Australian English spelling
+FOOD_CORRECTIONS: dict[str, str] = {
+    # yoghurt variants
+    "youghurt": "yoghurt", "yogurt": "yoghurt", "yoghert": "yoghurt",
+    "yohurt": "yoghurt", "yoghourt": "yoghurt", "yougart": "yoghurt",
+    # chocolate
+    "choclate": "chocolate", "chocloate": "chocolate", "chocolat": "chocolate",
+    "chocalate": "chocolate", "choclate": "chocolate",
+    # biscuit
+    "biscut": "biscuit", "bisquit": "biscuit", "biscit": "biscuit",
+    "biscuite": "biscuit",
+    # cereal / muesli
+    "museli": "muesli", "mueslie": "muesli", "muslie": "muesli",
+    "ceral": "cereal", "cerael": "cereal",
+    # cheese
+    "chese": "cheese", "cheeze": "cheese",
+    # butter / margarine
+    "margerine": "margarine", "margerin": "margarine",
+    # coffee
+    "cofee": "coffee", "coffe": "coffee",
+    # juice / smoothie
+    "juise": "juice", "smothie": "smoothie", "smoothy": "smoothie",
+    # bread
+    "bred": "bread", "braed": "bread",
+    # biscuit / cracker
+    "craker": "cracker", "cracker": "cracker",
+    # sauce / dressing
+    "sause": "sauce", "dresing": "dressing",
+    # vegemite (common AU brand)
+    "vegimite": "vegemite", "vegemit": "vegemite",
+    # weetbix
+    "weetbicks": "weet-bix", "weetbix": "weet-bix",
+    # milk
+    "mlk": "milk",
+    # protein
+    "protien": "protein", "portein": "protein",
+    # yoghurt again (common in AU)
+    "jogurt": "yoghurt", "joghurt": "yoghurt",
+}
+
+def _correct_query(q: str) -> str:
+    """Replace known misspellings in a query string with correct spellings."""
+    words = q.split()
+    corrected = [FOOD_CORRECTIONS.get(w.lower(), w) for w in words]
+    return " ".join(corrected)
+
 def _oof_search(query: str, page_size: int = 20) -> list:
     """Fetch raw product list from Open Food Facts for a given query string."""
     try:
@@ -190,7 +236,7 @@ def _oof_search(query: str, page_size: int = 20) -> list:
                 "search_terms": query,
                 "action": "process",
                 "json": "1",
-                "fields": "id,product_name,categories_tags,ingredients_text",
+                "fields": "id,product_name,categories_tags,ingredients_text,image_front_small_url,image_url",
                 "page_size": str(page_size),
                 "sort_by": "unique_scans_n",
                 "cc": "au",
@@ -227,19 +273,24 @@ def _clean_products(raw: list) -> list:
                 if 3 < len(cleaned) < 40:
                     category = cleaned
                     break
+        image_url = (p.get("image_front_small_url") or p.get("image_url") or "").strip()
         products.append({
             "id": str(p.get("id") or p.get("code") or ""),
             "name": name,
             "category": category,
             "ingredients_text": ingredients,
+            "image_url": image_url,
         })
     return products
 
 @app.get("/api/search")
 def search_products(q: str):
     try:
+        # ── Correct known misspellings before searching ──────────────
+        q_corrected = _correct_query(q)
+
         # ── Primary search with the full query ──────────────────────────
-        primary_raw = _oof_search(q, page_size=20)
+        primary_raw = _oof_search(q_corrected, page_size=20)
         primary = _clean_products(primary_raw)
 
         # Deduplicate by product id, preserving order (primary results first)
@@ -256,7 +307,7 @@ def search_products(q: str):
         # partial words because OOF tokenises differently per word).
         stop_words = {"the", "and", "for", "with", "from", "that", "this",
                       "are", "was", "but", "not", "all", "can", "has", "its"}
-        words = [w for w in re.split(r"[\s\-_/]+", q.lower())
+        words = [w for w in re.split(r"[\s\-_/]+", q_corrected.lower())
                  if len(w) >= 3 and w not in stop_words]
 
         # De-duplicate words so we don't fire duplicate requests
@@ -406,7 +457,7 @@ def ai_pick(name: str, category: str = ""):
                 "search_terms": query,
                 "action": "process",
                 "json": "1",
-                "fields": "id,product_name,categories_tags,ingredients_text",
+                "fields": "id,product_name,categories_tags,ingredients_text,image_front_small_url,image_url",
                 "page_size": "10",
                 "sort_by": "unique_scans_n",
                 "cc": "au",
@@ -437,11 +488,13 @@ def ai_pick(name: str, category: str = ""):
                     if 3 < len(cleaned) < 40:
                         cat = cleaned
                         break
+            img = (p.get("image_front_small_url") or p.get("image_url") or "").strip()
             return {
                 "id": str(p.get("id") or p.get("code") or ""),
                 "name": pname,
                 "category": cat,
                 "ingredients_text": ingredients,
+                "image_url": img,
             }
         raise HTTPException(status_code=404, detail="No alternative product found")
     except HTTPException:

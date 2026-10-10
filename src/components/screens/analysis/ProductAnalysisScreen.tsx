@@ -86,6 +86,7 @@ export default function ProductAnalysisScreen({
           name={product.name}
           category={product.category}
           status={product.status}
+          imageUrl={product.image_url}
         />
 
         {/* ===== VERDICT CARD ===== */}

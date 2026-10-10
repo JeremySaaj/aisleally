@@ -137,6 +137,7 @@ export default function HomePage() {
                   name={product.name}
                   category={product.category}
                   status="unknown"
+                  imageUrl={product.image_url}
                   onClick={() => handleSelectProduct(product)}
                 />
               ))}
