@@ -7,65 +7,78 @@ import PrimaryActionButton from "@/components/ui/PrimaryActionButton";
 import { validateLoginForm } from "@/lib/validation";
 import type { LoginFormErrors, AuthProps } from "@/types/auth";
 
-/**
- * Login form composed from AisleAlly UI primitives.
- *
- * Handles:
- * - Email and password field state
- * - Client-side validation on submit
- * - Inline error messages
- * - Navigation to /health-focus on success
- * - Auth state callback for prop drilling
- */
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "";
+
 export default function LoginForm({ onAuth }: AuthProps) {
   const router = useRouter();
 
-  // --- Form field state ---
-  const [email, setEmail] = useState("");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<LoginFormErrors>({});
+  const [errors, setErrors]     = useState<LoginFormErrors>({});
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- Submit handler ---
   const handleSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
+      setAuthError(null);
 
-      // Validate
       const formErrors = validateLoginForm(email, password);
       if (Object.keys(formErrors).length > 0) {
         setErrors(formErrors);
         return;
       }
-
-      // Clear any previous errors
       setErrors({});
       setIsSubmitting(true);
 
-      // Simulate a brief network delay for realistic UX
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      try {
+        const res = await fetch(`${BASE_URL}/api/auth`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
 
-      // Persist user identity to localStorage so getUserId() works
-      localStorage.setItem("aisleally-user-id", email);
+        if (res.status === 401) {
+          setAuthError("Incorrect password. Please try again.");
+          return;
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setAuthError(body.detail ?? "Something went wrong. Please try again.");
+          return;
+        }
 
-      // Lift auth state up if callback provided
-      onAuth?.(email);
+        const data = await res.json();
+        // Store the Supabase user UUID as the stable identifier
+        localStorage.setItem("aisleally-user-id", data.user_id);
 
-      // Navigate to Screen 2
-      router.push("/health-focus");
+        onAuth?.(email);
+
+        // New users → onboarding; returning users → home (profile already set)
+        router.push(data.is_new_user ? "/health-focus" : "/home");
+      } catch {
+        setAuthError("Network error. Please check your connection.");
+      } finally {
+        setIsSubmitting(false);
+      }
     },
-    [email, password, onAuth, router]
+    [email, password, onAuth, router],
   );
 
   return (
     <CustomSectionCard title="Sign in to AisleAlly">
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
+
+        {/* ---- Global auth error ---- */}
+        {authError && (
+          <div role="alert" className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
+            {authError}
+          </div>
+        )}
+
         {/* ---- Email Field ---- */}
         <div>
-          <label
-            htmlFor="email"
-            className="block text-sm font-medium text-slate-700 mb-1.5"
-          >
+          <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
             Email address
           </label>
           <input
@@ -77,6 +90,7 @@ export default function LoginForm({ onAuth }: AuthProps) {
             onChange={(e) => {
               setEmail(e.target.value);
               if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              setAuthError(null);
             }}
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? "email-error" : undefined}
@@ -89,18 +103,13 @@ export default function LoginForm({ onAuth }: AuthProps) {
             `}
           />
           {errors.email && (
-            <p id="email-error" role="alert" className="mt-1.5 text-sm text-red-500">
-              {errors.email}
-            </p>
+            <p id="email-error" role="alert" className="mt-1.5 text-sm text-red-500">{errors.email}</p>
           )}
         </div>
 
         {/* ---- Password Field ---- */}
         <div>
-          <label
-            htmlFor="password"
-            className="block text-sm font-medium text-slate-700 mb-1.5"
-          >
+          <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
             Password
           </label>
           <input
@@ -111,8 +120,8 @@ export default function LoginForm({ onAuth }: AuthProps) {
             value={password}
             onChange={(e) => {
               setPassword(e.target.value);
-              if (errors.password)
-                setErrors((prev) => ({ ...prev, password: undefined }));
+              if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+              setAuthError(null);
             }}
             aria-invalid={!!errors.password}
             aria-describedby={errors.password ? "password-error" : undefined}
@@ -125,27 +134,20 @@ export default function LoginForm({ onAuth }: AuthProps) {
             `}
           />
           {errors.password && (
-            <p id="password-error" role="alert" className="mt-1.5 text-sm text-red-500">
-              {errors.password}
-            </p>
+            <p id="password-error" role="alert" className="mt-1.5 text-sm text-red-500">{errors.password}</p>
           )}
         </div>
 
-        {/* ---- Submit Button ---- */}
+        {/* ---- Submit ---- */}
         <div className="pt-2">
-          <PrimaryActionButton
-            label="Sign In"
-            type="submit"
-            isLoading={isSubmitting}
-          />
+          <PrimaryActionButton label="Sign In / Sign Up" type="submit" isLoading={isSubmitting} />
         </div>
 
         {/* ---- Helper Text ---- */}
-        <p className="text-center text-sm text-slate-500 pt-1">
-          Don&apos;t have an account?{" "}
-          <span className="text-emerald-600 font-medium cursor-pointer hover:underline">
-            Sign up
-          </span>
+        <p className="text-center text-xs text-slate-500 pt-1 leading-relaxed">
+          New here? Enter any email and a password to create your account automatically.
+          <br />
+          Returning? Use the same credentials to sign back in.
         </p>
       </form>
     </CustomSectionCard>

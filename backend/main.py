@@ -98,6 +98,76 @@ def list_gemini_models():
     except Exception as e:
         return {"error": str(e)}
 
+# ── Auth Endpoints ───────────────────────────────────────
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/api/auth")
+def auth_user(req: AuthRequest):
+    """
+    Unified sign-in / sign-up endpoint.
+    - Tries to sign in first.
+    - If no account exists, creates one automatically.
+    - If account exists but password is wrong, returns 401.
+    Returns {"user_id": str, "email": str, "is_new_user": bool}.
+    """
+    auth_base = f"{SUPABASE_URL}/auth/v1"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json",
+    }
+    payload = {"email": req.email, "password": req.password}
+
+    # ── Step 1: try sign-in ──────────────────────────────
+    try:
+        sign_in = httpx.post(
+            f"{auth_base}/token?grant_type=password",
+            json=payload, headers=headers, timeout=10.0,
+        )
+        if sign_in.status_code == 200:
+            data = sign_in.json()
+            user_id = data.get("user", {}).get("id") or data.get("id", req.email)
+            return {"user_id": user_id, "email": req.email, "is_new_user": False}
+
+        body = sign_in.json() if sign_in.content else {}
+        error_msg = (body.get("error_description") or body.get("msg") or "").lower()
+
+        # Wrong password for an existing account
+        if "invalid login" in error_msg or "invalid credentials" in error_msg:
+            raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Auth error: {str(e)}")
+
+    # ── Step 2: no account found — try sign-up ───────────
+    try:
+        sign_up = httpx.post(
+            f"{auth_base}/signup",
+            json=payload, headers=headers, timeout=10.0,
+        )
+        up_body = sign_up.json() if sign_up.content else {}
+
+        if sign_up.status_code in (200, 201):
+            user = up_body.get("user") or up_body
+            user_id = user.get("id") if isinstance(user, dict) else req.email
+            return {"user_id": user_id or req.email, "email": req.email, "is_new_user": True}
+
+        up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
+        if "already registered" in up_error or "already been registered" in up_error:
+            # Account exists but sign-in failed for a different reason
+            raise HTTPException(status_code=401, detail="Incorrect password. Please try again.")
+
+        raise HTTPException(status_code=400, detail=up_body.get("msg", "Sign-up failed"))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Sign-up error: {str(e)}")
+
+
 # ── Health Profile Endpoints ─────────────────────────────
 
 @app.post("/api/profile")
