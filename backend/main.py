@@ -125,19 +125,11 @@ def signup_user(req: SignupRequest):
             user_id = (user.get("id") if isinstance(user, dict) else None) or req.email
             return {"user_id": user_id, "email": req.email, "name": req.name, "is_new_user": True}
 
-        up_error = (up_body.get("msg") or up_body.get("error_description") or "").lower()
-        up_code = up_body.get("code") or up_body.get("error_code") or ""
+        # Any non-200 from Supabase — surface the real message
+        detail = up_body.get("msg") or up_body.get("error_description") or up_body.get("message") or "Sign-up failed."
+        status = 409 if sign_up.status_code == 422 else 400
+        raise HTTPException(status_code=status, detail=detail)
 
-        already_exists = (
-            "already registered" in up_error
-            or "already exists" in up_error
-            or up_code in ("user_already_exists", "email_exists")
-            or sign_up.status_code == 422
-        )
-        if already_exists:
-            raise HTTPException(status_code=409, detail="An account with this email already exists. Please log in instead.")
-
-        raise HTTPException(status_code=400, detail=up_body.get("msg") or up_body.get("error_description") or up_body.get("message") or "Sign-up failed.")
     except HTTPException:
         raise
     except Exception as e:
