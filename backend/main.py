@@ -850,7 +850,7 @@ Rules:
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal"
             }
-            save_resp = httpx.post(
+            httpx.post(
                 f"{SUPABASE_URL}/rest/v1/product_comparisons",
                 json={
                     "user_id": req.user_id or "anonymous",
@@ -862,9 +862,8 @@ Rules:
                 },
                 headers=insert_headers, timeout=5.0,
             )
-            print(f"Supabase insert: {save_resp.status_code} {save_resp.text}")
-        except Exception as e:
-            print(f"Comparison save failed: {e}")
+        except Exception:
+            pass
 
         return result
     except HTTPException:
