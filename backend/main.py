@@ -158,20 +158,6 @@ def auth_user(req: AuthRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Auth error: {str(e)}")
 
-
-@app.post("/api/auth/debug")
-def auth_debug(req: AuthRequest):
-    """Temporary endpoint — shows raw Supabase auth responses for debugging."""
-    auth_base = f"{SUPABASE_URL}/auth/v1"
-    headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
-    payload = {"email": req.email, "password": req.password}
-    sign_up = httpx.post(f"{auth_base}/signup", json=payload, headers=headers, timeout=10.0)
-    return {
-        "signup_status": sign_up.status_code,
-        "signup_body": sign_up.json() if sign_up.content else {},
-    }
-
-
 # ── Health Profile Endpoints ─────────────────────────────
 
 @app.post("/api/profile")
