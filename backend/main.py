@@ -842,9 +842,15 @@ Rules:
         text = re.sub(r'\n?```\s*$', '', text)
         result = json_lib.loads(text.strip())
 
-        # Persist comparison record (silently ignore save failures)
+        # Persist comparison record (log errors but never block the response)
         try:
-            httpx.post(
+            insert_headers = {
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            }
+            save_resp = httpx.post(
                 f"{SUPABASE_URL}/rest/v1/product_comparisons",
                 json={
                     "user_id": req.user_id or "anonymous",
@@ -854,10 +860,11 @@ Rules:
                     "verdict": result.get("verdict_text"),
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 },
-                headers=sb_headers(), timeout=5.0,
+                headers=insert_headers, timeout=5.0,
             )
-        except Exception:
-            pass
+            print(f"Supabase insert: {save_resp.status_code} {save_resp.text}")
+        except Exception as e:
+            print(f"Comparison save failed: {e}")
 
         return result
     except HTTPException:
