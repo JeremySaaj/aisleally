@@ -7,6 +7,7 @@ import httpx
 import json as json_lib
 import re
 from typing import Optional
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -764,6 +765,7 @@ Return ONLY this JSON — no explanation:
 # ── Product Comparison (Gemini) ──────────────────────────
 
 class CompareRequest(BaseModel):
+    user_id: Optional[str] = None
     product_a_name: str
     product_a_ingredients: str
     product_b_name: str
@@ -839,6 +841,24 @@ Rules:
         text = re.sub(r'^```(?:json)?\s*\n?', '', text)
         text = re.sub(r'\n?```\s*$', '', text)
         result = json_lib.loads(text.strip())
+
+        # Persist comparison record (silently ignore save failures)
+        try:
+            httpx.post(
+                f"{SUPABASE_URL}/rest/v1/product_comparisons",
+                json={
+                    "user_id": req.user_id or "anonymous",
+                    "product_a_name": req.product_a_name,
+                    "product_b_name": req.product_b_name,
+                    "winner": result.get("winner"),
+                    "verdict": result.get("verdict_text"),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                headers=sb_headers(), timeout=5.0,
+            )
+        except Exception:
+            pass
+
         return result
     except HTTPException:
         raise
