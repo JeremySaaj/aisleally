@@ -28,7 +28,6 @@ export function HealthProfileProvider({ children }: { children: ReactNode }) {
   const loadProfile = async () => {
     setIsLoading(true);
     try {
-      // ── Primary: load from Supabase via backend ──────────────────────
       const userId = getUserId();
       const remote = await getProfile(userId);
       if (remote) {
@@ -38,26 +37,24 @@ export function HealthProfileProvider({ children }: { children: ReactNode }) {
           customTags: remote.custom_tags ?? [],
           savedAt: new Date().toISOString(),
         };
-        // Keep localStorage in sync as a fast cache
         localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
         setProfile(mapped);
         return;
       }
-    } catch {
-      // Supabase unavailable — fall through to localStorage
-    }
-
-    // ── Fallback: localStorage cache ─────────────────────────────────────
-    try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setProfile(JSON.parse(raw) as HealthProfile);
       else setProfile(null);
     } catch {
-      setProfile(null);
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) setProfile(JSON.parse(raw) as HealthProfile);
+        else setProfile(null);
+      } catch {
+        setProfile(null);
+      }
     } finally {
       setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   useEffect(() => {
