@@ -10,6 +10,7 @@ import SearchBar from "@/components/ui/SearchBar";
 import ProductCard from "@/components/ui/ProductCard";
 import PrimaryActionButton from "@/components/ui/PrimaryActionButton";
 import GroceryMascot from "@/components/ui/GroceryMascot";
+import { LogOut } from "lucide-react";
 import { searchProducts, type SearchProduct } from "@/lib/api";
 
 export default function HomePage() {
@@ -49,6 +50,11 @@ export default function HomePage() {
     router.push(`/analyze/${product.id}`);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem("aisleally-user-id");
+    router.replace("/login");
+  };
+
   const handleAnalyzePasted = () => {
     const pastedProduct: SearchProduct = {
       id: "pasted-" + Date.now(),
@@ -72,12 +78,23 @@ export default function HomePage() {
             </div>
             <h1 className="text-lg font-extrabold text-primary tracking-tight">AisleAlly</h1>
           </div>
-          <Link
-            href="/onboarding"
-            className="px-4 py-1.5 rounded-full border-2 border-primary/30 text-primary text-xs font-semibold hover:bg-primary/5 transition-colors"
-          >
-            Edit Profile
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleLogout}
+              aria-label="Log out"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border-2 border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50 transition-colors cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+              Log out
+            </button>
+            <Link
+              href="/onboarding"
+              className="px-4 py-1.5 rounded-full border-2 border-primary/30 text-primary text-xs font-semibold hover:bg-primary/5 transition-colors"
+            >
+              Edit Profile
+            </Link>
+          </div>
         </div>
       </header>
 
