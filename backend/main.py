@@ -585,6 +585,21 @@ def _food_group(name: str, cats: list[str]) -> Optional[str]:
             return group_name
     return None
 
+# Ingredient fragments that count as dairy. A "dairy" / "dairy free" exclusion
+# is expanded with these so ingredients like "skimmed milk powder", "whey" or
+# "lactose" are blocked even though the word "dairy" never appears in the text.
+DAIRY_INDICATOR_TERMS: tuple[str, ...] = (
+    "milk", "whey", "lactose", "cream", "butter", "casein",
+    "skimmed milk", "milk powder", "milk solids",
+)
+
+def _has_excluded_ingredient(ingredients: str, terms: list[str]) -> bool:
+    """True if the ingredients text contains any excluded ingredient term."""
+    if not terms:
+        return False
+    ing_lower = ingredients.lower()
+    return any(term in ing_lower for term in terms)
+
 @app.get("/api/ai-pick")
 def ai_pick(name: str, category: str = "", flags: str = "", exclusions: str = ""):
     """Use Gemini to suggest a HEALTHIER alternative product, then find it on OOF."""
@@ -596,6 +611,16 @@ def ai_pick(name: str, category: str = "", flags: str = "", exclusions: str = ""
         # Build flags context for the prompt (e.g. "High sugar; Contains palm oil")
         flags_context = f"\n- Health issues flagged in the original: {flags}" if flags.strip() else ""
         exclusions_list = [e.strip().lower() for e in exclusions.split(",") if e.strip()]
+        # Expand "dairy"/"dairy free" exclusions with milk-derived ingredient
+        # names so e.g. "skimmed milk powder", "whey" or "lactose" are blocked.
+        dairy_excluded = any(
+            e.replace("-", " ") in ("dairy", "dairy free") for e in exclusions_list
+        )
+        exclusion_terms = list(exclusions_list)
+        if dairy_excluded:
+            exclusion_terms.extend(DAIRY_INDICATOR_TERMS)
+        # Set when the exclusion filter skips a candidate that OOF returned
+        exclusion_blocked = False
         exclusions_context = (
             f"\n- The user CANNOT have these ingredients (hard exclusions): {exclusions}"
             if exclusions.strip() else ""
@@ -603,6 +628,7 @@ def ai_pick(name: str, category: str = "", flags: str = "", exclusions: str = ""
 
         # ── Helper — find a valid alternative in OOF results ─────────────
         def _try_pick(query: str, strict_group: Optional[str]) -> Optional[dict]:
+            nonlocal exclusion_blocked
             raw_products = _oof_search(query, page_size=15)
             for p in raw_products:
                 pname = (p.get("product_name") or "").strip()
@@ -616,11 +642,11 @@ def ai_pick(name: str, category: str = "", flags: str = "", exclusions: str = ""
                 non_ascii = sum(1 for c in pname if ord(c) > 127)
                 if non_ascii > len(pname) * 0.3:
                     continue
-                # Hard-exclusion filter — skip if candidate contains any banned ingredient
-                if exclusions_list:
-                    ing_lower = ingredients.lower()
-                    if any(excl in ing_lower for excl in exclusions_list):
-                        continue
+                # Hard-exclusion filter — skip if candidate contains any banned
+                # ingredient (dairy exclusions expand to milk-derived terms)
+                if exclusion_terms and _has_excluded_ingredient(ingredients, exclusion_terms):
+                    exclusion_blocked = True
+                    continue
                 # Food group check — only enforced when strict_group is set
                 if strict_group is not None:
                     pcats_check = p.get("categories_tags") or []
@@ -731,52 +757,84 @@ Return ONLY this JSON — no explanation:
         for query in gemini_queries:
             result = _try_pick(query, None)
             if result:
-                return result
+                break
 
         # ── Step 4: Keyword fallbacks with food-group filter ─────────────
-        for query in keyword_queries:
-            result = _try_pick(query, original_group)
-            if result:
-                return result
+        if not result:
+            for query in keyword_queries:
+                result = _try_pick(query, original_group)
+                if result:
+                    break
 
         # ── Step 5: Relax food-group filter, retry keyword queries ────────
-        for query in keyword_queries:
-            result = _try_pick(query, None)
-            if result:
-                return result
+        if not result:
+            for query in keyword_queries:
+                result = _try_pick(query, None)
+                if result:
+                    break
 
         # ── Step 6: Absolute last resort — broadest possible terms ────────
-        generic_terms: list[str] = []
-        for w in (cat_words + name_words):
-            if len(w) >= 4 and w not in generic_terms:
-                generic_terms.append(w)
-        for term in generic_terms[:3]:
-            result = _try_pick(term, None)
-            if result:
-                return result
+        if not result:
+            generic_terms: list[str] = []
+            for w in (cat_words + name_words):
+                if len(w) >= 4 and w not in generic_terms:
+                    generic_terms.append(w)
+            for term in generic_terms[:3]:
+                result = _try_pick(term, None)
+                if result:
+                    break
 
-        # ── Step 7: Hardcoded fallback for sweet chocolate/hazelnut spreads ──
+        # Never return a product that still contains a blocked ingredient —
+        # treat it as if the exclusion filter had blocked everything.
+        if result is not None and _has_excluded_ingredient(result["ingredients_text"], exclusion_terms):
+            exclusion_blocked = True
+            result = None
+
+        # A clean result from the searches wins outright
+        if result is not None:
+            return result
+
+        # ── Step 7: Hardcoded fallback for chocolate/hazelnut spreads ────
         # OOF often has no healthier alternative indexed for products like
-        # Nutella, so all search strategies above return nothing. For these
-        # sweet spread categories, return a known-good hardcoded result
-        # instead of a 404.
-        if result is None:
-            sweet_spread_keywords = (
-                "nutella",
-                "hazelnut",
-                "chocolate spread",
-                "choc spread",
-                "sweet spread",
+        # Nutella, or every candidate it does return is excluded (e.g. all
+        # contain dairy). For chocolate/hazelnut spreads, return a known-good
+        # hardcoded result instead of a 404.
+        haystack = f"{name} {category}".lower()
+        sweet_spread_keywords = (
+            "nutella",
+            "hazelnut",
+            "chocolate spread",
+            "choc spread",
+            "sweet spread",
+        )
+        is_choc_or_hazelnut_spread = (
+            "nutella" in haystack
+            or "hazelnut" in haystack
+            or "chocolate spread" in haystack
+            or "choc spread" in haystack
+            or (
+                ("chocolate" in haystack or "choc" in haystack or "cocoa" in haystack)
+                and "spread" in haystack
             )
-            haystack = f"{name} {category}".lower()
-            if any(kw in haystack for kw in sweet_spread_keywords):
-                return {
-                    "id": "fallback-001",
-                    "name": "Mayver's Dark Choc Peanut Butter",
-                    "category": "Nut Butters",
-                    "ingredients_text": "Peanuts (95%), cocoa powder (5%)",
-                    "image_url": "",
-                }
+        )
+        fallback_result = {
+            "id": "fallback-001",
+            "name": "Mayver's Dark Choc Peanut Butter",
+            "category": "Nut Butters",
+            "ingredients_text": "Peanuts (95%), cocoa powder (5%)",
+            "image_url": "",
+        }
+
+        # Trigger 1 — all searches returned nothing and it's a sweet spread
+        if result is None and any(kw in haystack for kw in sweet_spread_keywords):
+            return fallback_result
+
+        # Trigger 2 — products WERE found, but the exclusion filter blocked
+        # every one of them (each contained a blocked ingredient). For
+        # chocolate/hazelnut spreads with a dairy exclusion, fall back rather
+        # than 404.
+        if result is None and exclusion_blocked and is_choc_or_hazelnut_spread and dairy_excluded:
+            return fallback_result
 
         raise HTTPException(
             status_code=404,
